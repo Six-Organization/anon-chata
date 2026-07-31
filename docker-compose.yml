@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatpass}
+      POSTGRES_DB: ${POSTGRES_DB:-chatdb}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chat} -d ${POSTGRES_DB:-chatdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chatnet
+
+  be:
+    build:
+      context: ./be
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-chat}:${POSTGRES_PASSWORD:-chatpass}@postgres:5432/${POSTGRES_DB:-chatdb}?schema=public
+      PORT: "4000"
+      # CORS: kosongkan/"*" kalau via Nginx same-origin. Untuk akses langsung set origin FE.
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      NODE_ENV: production
+      UPLOAD_DIR: /app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "4000"
+    volumes:
+      # Gambar disimpan di volume (persist antar-restart, di luar image/repo).
+      - uploads:/app/uploads
+    networks:
+      - chatnet
+
+  fe:
+    build:
+      context: ./fe
+      dockerfile: Dockerfile
+      args:
+        # Di-inject saat build. Same-origin via Nginx: origin kosong (FE menambah /api sendiri).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - be
+    expose:
+      - "3000"
+    networks:
+      - chatnet
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      # Port host bisa diatur via env WEB_PORT (default 80 utk produksi).
+      # Lokal: set WEB_PORT=8090 di root .env agar tak tabrakan project lain.
+      - "${WEB_PORT:-80}:80"
+      # - "443:443"   # buka setelah setup Certbot (lihat README)
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # - ./nginx/certbot/www:/var/www/certbot:ro          # untuk ACME challenge
+      # - /etc/letsencrypt:/etc/letsencrypt:ro             # sertifikat Certbot host
+    depends_on:
+      - be
+      - fe
+    networks:
+      - chatnet
+
+volumes:
+  pgdata:
+  uploads:
+
+networks:
+  chatnet:
+    driver: bridge

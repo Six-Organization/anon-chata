@@ -1,0 +1,83 @@
+name: CI/CD
+
+# Alur:
+#  - Setiap push/PR  -> validasi build Backend & Frontend (CI).
+#  - Push ke `main`  -> setelah build hijau, deploy ke VPS via SSH (CD).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+# Cegah dua deploy jalan bersamaan.
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------- CI: Backend ----------
+  backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: be
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: be/package-lock.json
+      - run: npm ci
+      - run: npm run build   # prisma generate + tsc (strict)
+
+  # ---------- CI: Frontend ----------
+  frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fe
+    env:
+      # Same-origin via Nginx di produksi.
+      NEXT_PUBLIC_API_URL: /api
+      NEXT_PUBLIC_SOCKET_URL: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: fe/package-lock.json
+      - run: npm ci
+      - run: npm run build   # next build (termasuk type-check)
+
+  # ---------- CD: Deploy ke VPS ----------
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    # hanya deploy saat push ke main (bukan PR / branch lain)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd "${{ secrets.APP_DIR }}"
+            echo "==> Pull kode terbaru"
+            git fetch --all
+            git reset --hard origin/main
+            echo "==> Rebuild & restart container"
+            docker compose up -d --build
+            echo "==> Bersihkan image lama"
+            docker image prune -f
+            echo "==> Status"
+            docker compose ps

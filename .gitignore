@@ -1,0 +1,29 @@
+# deps
+node_modules/
+**/node_modules/
+
+# env
+.env
+.env.local
+**/.env
+**/.env.local
+!**/.env.example
+
+# builds
+be/dist/
+fe/.next/
+fe/out/
+
+# prisma generated client
+be/node_modules/.prisma/
+
+# logs / os
+*.log
+.DS_Store
+npm-debug.log*
+
+# docker volumes (local)
+pgdata/
+
+# uploaded images (auto-deleted after 24h; never commit)
+be/uploads/

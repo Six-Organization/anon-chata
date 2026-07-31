@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  /* hilangkan kotak biru saat tap di mobile */
+  -webkit-tap-highlight-color: transparent;
+  /* cegah bounce / pull-to-refresh mengganggu chat */
+  overscroll-behavior-y: none;
+}
+
+/* --- FIX ZOOM SAAT TAP INPUT (iOS) ---
+   iOS Safari auto-zoom kalau font input < 16px. Paksa 16px di perangkat
+   sentuh (menang atas utility text-sm), desktop tetap boleh lebih kecil. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* --- Safe area (notch / home indicator) --- */
+.safe-top {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+.safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Scroll pesan lebih halus + tidak menular ke body */
+.chat-scroll {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
