@@ -1,9 +1,14 @@
+import fs from "fs";
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { normalizeCode } from "../utils/code";
 import { normalizeNickname } from "../utils/validation";
-import { uploadImageMiddleware } from "../upload";
-import { UPLOADS_URL_PREFIX } from "../config";
+import { uploadMediaMiddleware } from "../upload";
+import {
+  UPLOADS_URL_PREFIX,
+  kindFromMime,
+  maxBytesForKind,
+} from "../config";
 import {
   createRoom,
   findRoomByCode,
@@ -64,7 +69,7 @@ roomsRouter.get("/:code", async (req: Request, res: Response) => {
   res.status(200).json({ code: room.code, participants, count });
 });
 
-// POST /api/rooms/:code/upload -> upload 1 gambar (multipart, field "image")
+// POST /api/rooms/:code/upload -> upload 1 media (multipart, field "file")
 roomsRouter.post("/:code/upload", async (req: Request, res: Response) => {
   const code = normalizeCode(req.params.code);
   const room = await findRoomByCode(code);
@@ -72,18 +77,31 @@ roomsRouter.post("/:code/upload", async (req: Request, res: Response) => {
     return res.status(404).json({ error: "Room tidak ditemukan" });
   }
 
-  uploadImageMiddleware.single("image")(req, res, (err: unknown) => {
+  uploadMediaMiddleware.single("file")(req, res, (err: unknown) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
-        return res.status(413).json({ error: "Gambar terlalu besar (maks 5MB)" });
+        return res.status(413).json({ error: "File terlalu besar" });
       }
-      return res.status(400).json({ error: "File harus berupa gambar (jpg/png/gif/webp)" });
+      return res
+        .status(400)
+        .json({ error: "Jenis file tidak didukung (gambar/audio/video)" });
     }
     if (!req.file) {
-      return res.status(400).json({ error: "File gambar wajib diunggah" });
+      return res.status(400).json({ error: "File wajib diunggah" });
     }
-    const imageUrl = `${UPLOADS_URL_PREFIX}/${req.file.filename}`;
-    return res.status(201).json({ imageUrl });
+    const kind = kindFromMime(req.file.mimetype);
+    if (!kind) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: "Jenis file tidak didukung" });
+    }
+    // batas per-jenis (limit multer = video max, jadi cek ulang di sini)
+    if (req.file.size > maxBytesForKind(kind)) {
+      fs.unlink(req.file.path, () => {});
+      const mb = Math.round(maxBytesForKind(kind) / (1024 * 1024));
+      return res.status(413).json({ error: `Ukuran ${kind} maksimal ${mb}MB` });
+    }
+    const url = `${UPLOADS_URL_PREFIX}/${req.file.filename}`;
+    return res.status(201).json({ url, kind });
   });
 });
 

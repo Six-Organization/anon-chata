@@ -35,9 +35,12 @@ async function sweep(): Promise<void> {
   // 2) row pesan gambar kadaluarsa
   try {
     const res = await prisma.message.deleteMany({
-      where: { type: "image", expiresAt: { lt: new Date() } },
+      where: {
+        type: { in: ["image", "audio", "video"] },
+        expiresAt: { lt: new Date() },
+      },
     });
-    if (res.count > 0) console.log(`[cleanup] hapus ${res.count} pesan gambar kadaluarsa`);
+    if (res.count > 0) console.log(`[cleanup] hapus ${res.count} pesan media kadaluarsa`);
   } catch (err) {
     console.error("[cleanup] gagal hapus row:", err);
   }

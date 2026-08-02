@@ -62,3 +62,34 @@ export function clearSession(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(SESSION_KEY);
 }
+
+// ---- Riwayat room yang pernah di-join (untuk shortcut di halaman home) ----
+const RECENTS_KEY = "anonchat_recent_rooms";
+const RECENTS_MAX = 8;
+
+export type RecentRoom = { code: string; at: number };
+
+export function getRecentRooms(): RecentRoom[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as RecentRoom[];
+    return Array.isArray(list) ? list.filter((r) => r && r.code) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addRecentRoom(code: string): void {
+  if (typeof window === "undefined" || !code) return;
+  const list = getRecentRooms().filter((r) => r.code !== code);
+  list.unshift({ code, at: Date.now() });
+  localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, RECENTS_MAX)));
+}
+
+export function removeRecentRoom(code: string): void {
+  if (typeof window === "undefined") return;
+  const list = getRecentRooms().filter((r) => r.code !== code);
+  localStorage.setItem(RECENTS_KEY, JSON.stringify(list));
+}

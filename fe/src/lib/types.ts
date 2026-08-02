@@ -12,13 +12,23 @@ export type ReadReceiptPayload = {
   lastReadAt: string;
 };
 
+export type MediaType = "text" | "image" | "audio" | "video";
+
+export type ReplyPreview = {
+  id: string;
+  nickname: string;
+  content: string;
+  type: string;
+} | null;
+
 export type Message = {
   id: string;
   nickname: string;
   clientId: string | null; // identitas pengirim (utk tentukan bubble sendiri lintas sesi)
   content: string; // teks / caption
-  type: "text" | "image";
-  imageUrl: string | null; // path gambar bila type=image (null jika kadaluarsa)
+  type: MediaType;
+  imageUrl: string | null; // URL media (image/audio/video); null jika kadaluarsa
+  replyTo: ReplyPreview;
   createdAt: string; // ISO
 };
 

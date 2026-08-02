@@ -6,8 +6,11 @@ import {
   normalizeMessage,
   normalizeCaption,
 } from "./utils/validation";
-import { resolveUploadedImage } from "./upload";
+import { resolveUploadedMedia } from "./upload";
 import { RULES } from "./config";
+
+// Jenis media yang valid untuk mediaType di send_message.
+const MEDIA_TYPES = new Set(["image", "audio", "video"]);
 import {
   findRoomByCode,
   getActiveParticipants,
@@ -133,20 +136,44 @@ export function registerSocketHandlers(io: Server): void {
     // ---- client -> server: send_message (teks atau gambar) ----
     socket.on(
       "send_message",
-      async (payload: { content?: string; imageUrl?: string }) => {
+      async (payload: {
+        content?: string;
+        imageUrl?: string;
+        mediaType?: string;
+        replyToId?: string;
+      }) => {
         try {
           if (!state.roomId || !state.nickname) {
             socket.emit("error", { message: "Belum join room" });
             return;
           }
 
-          // Pesan gambar: imageUrl harus valid (dari endpoint upload) + file ada.
+          // Validasi balasan: hanya boleh membalas pesan di room yang sama.
+          let replyToId: string | null = null;
+          if (typeof payload?.replyToId === "string" && payload.replyToId) {
+            const target = await prisma.message.findFirst({
+              where: { id: payload.replyToId, roomId: state.roomId },
+              select: { id: true },
+            });
+            replyToId = target ? target.id : null;
+          }
+
+          const includeReply = {
+            replyTo: {
+              select: { id: true, nickname: true, content: true, type: true },
+            },
+          };
+
+          // Pesan media: imageUrl harus valid (dari endpoint upload) + file ada.
           if (payload?.imageUrl !== undefined && payload?.imageUrl !== "") {
-            const imageUrl = resolveUploadedImage(payload.imageUrl);
+            const imageUrl = resolveUploadedMedia(payload.imageUrl);
             if (!imageUrl) {
-              socket.emit("error", { message: "Gambar tidak valid" });
+              socket.emit("error", { message: "Media tidak valid" });
               return;
             }
+            const type = MEDIA_TYPES.has(String(payload?.mediaType))
+              ? (payload!.mediaType as string)
+              : "image";
             const caption = normalizeCaption(payload.content);
             if (!caption.ok) {
               socket.emit("error", { message: caption.error });
@@ -158,10 +185,12 @@ export function registerSocketHandlers(io: Server): void {
                 nickname: state.nickname,
                 clientId: state.clientId ?? null,
                 content: caption.value,
-                type: "image",
+                type,
                 imageUrl,
+                replyToId,
                 expiresAt: new Date(Date.now() + RULES.IMAGE_TTL_MS),
               },
+              include: includeReply,
             });
             io.to(roomChannel(state.roomId)).emit("message", toMessageDTO(saved));
             return;
@@ -179,7 +208,9 @@ export function registerSocketHandlers(io: Server): void {
               nickname: state.nickname,
               clientId: state.clientId ?? null,
               content: msg.value,
+              replyToId,
             },
+            include: includeReply,
           });
           // broadcast ke SEMUA anggota room (termasuk pengirim)
           io.to(roomChannel(state.roomId)).emit("message", toMessageDTO(saved));

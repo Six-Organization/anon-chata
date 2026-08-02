@@ -17,17 +17,57 @@ export const RULES = {
   MESSAGE_MAX: 1000,
   ROOM_CODE_LENGTH: 6,
   MESSAGE_HISTORY_LIMIT: 200,
-  // Gambar
-  MAX_IMAGE_BYTES: 5 * 1024 * 1024, // 5 MB
-  IMAGE_TTL_MS: 24 * 60 * 60 * 1000, // 24 jam
+  // Media
+  IMAGE_TTL_MS: 24 * 60 * 60 * 1000, // 24 jam (semua media)
   CLEANUP_INTERVAL_MS: 10 * 60 * 1000, // sapu tiap 10 menit
+  // batas ukuran per jenis
+  MAX_IMAGE_BYTES: 5 * 1024 * 1024, // 5 MB
+  MAX_AUDIO_BYTES: 10 * 1024 * 1024, // 10 MB
+  MAX_VIDEO_BYTES: 25 * 1024 * 1024, // 25 MB
+  // mime yang diizinkan -> ekstensi file
   ALLOWED_IMAGE_MIME: {
     "image/jpeg": "jpg",
     "image/png": "png",
     "image/gif": "gif",
     "image/webp": "webp",
   } as Record<string, string>,
+  ALLOWED_AUDIO_MIME: {
+    "audio/webm": "webm",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/aac": "aac",
+  } as Record<string, string>,
+  ALLOWED_VIDEO_MIME: {
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+  } as Record<string, string>,
 } as const;
+
+// Jenis media dari mimetype.
+export type MediaKind = "image" | "audio" | "video";
+export function kindFromMime(mime: string): MediaKind | null {
+  if (RULES.ALLOWED_IMAGE_MIME[mime]) return "image";
+  if (RULES.ALLOWED_AUDIO_MIME[mime]) return "audio";
+  if (RULES.ALLOWED_VIDEO_MIME[mime]) return "video";
+  return null;
+}
+export function extFromMime(mime: string): string {
+  return (
+    RULES.ALLOWED_IMAGE_MIME[mime] ||
+    RULES.ALLOWED_AUDIO_MIME[mime] ||
+    RULES.ALLOWED_VIDEO_MIME[mime] ||
+    "bin"
+  );
+}
+export function maxBytesForKind(kind: MediaKind): number {
+  return kind === "image"
+    ? RULES.MAX_IMAGE_BYTES
+    : kind === "audio"
+    ? RULES.MAX_AUDIO_BYTES
+    : RULES.MAX_VIDEO_BYTES;
+}
 
 // URL publik gambar (path yang dilihat FE): /api/uploads/<file>
 export const UPLOADS_URL_PREFIX = "/api/uploads";

@@ -8,6 +8,9 @@ import {
   getSavedNickname,
   saveNickname,
   getClientId,
+  getRecentRooms,
+  removeRecentRoom,
+  type RecentRoom,
 } from "@/lib/identity";
 
 export default function LandingPage() {
@@ -17,6 +20,7 @@ export default function LandingPage() {
   const [loading, setLoading] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
+  const [recents, setRecents] = useState<RecentRoom[]>([]);
 
   // Auto-rejoin room terakhir kalau sesi masih < 5 jam; kalau tidak, tampilkan landing.
   useEffect(() => {
@@ -26,8 +30,19 @@ export default function LandingPage() {
       return;
     }
     setNickname(getSavedNickname());
+    setRecents(getRecentRooms());
     setChecking(false);
   }, [router]);
+
+  function quickJoin(code: string) {
+    saveNickname(nickname);
+    router.push(`/room/${code}`);
+  }
+
+  function forgetRoom(code: string) {
+    removeRecentRoom(code);
+    setRecents(getRecentRooms());
+  }
 
   async function handleCreate() {
     setError(null);
@@ -127,6 +142,36 @@ export default function LandingPage() {
           </p>
         )}
       </div>
+
+      {recents.length > 0 && (
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <p className="mb-2 text-xs font-medium text-slate-500">
+            Room terakhir — tap untuk gabung lagi
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {recents.map((r) => (
+              <div
+                key={r.code}
+                className="flex items-center gap-1 rounded-full bg-brand/10 py-1 pl-3 pr-1 text-sm"
+              >
+                <button
+                  onClick={() => quickJoin(r.code)}
+                  className="font-mono font-semibold tracking-widest text-brand-dark"
+                >
+                  {r.code}
+                </button>
+                <button
+                  onClick={() => forgetRoom(r.code)}
+                  aria-label={`Hapus ${r.code}`}
+                  className="grid h-5 w-5 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <footer className="text-center text-xs text-slate-400">
         Pesan tidak untuk data sensitif. Room otomatis tersimpan history-nya.

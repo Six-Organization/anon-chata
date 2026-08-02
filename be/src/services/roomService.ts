@@ -7,15 +7,27 @@ export type ParticipantDTO = {
   nickname: string;
   lastReadAt: string | null;
 };
+export type MediaType = "text" | "image" | "audio" | "video";
+export type ReplyPreview = {
+  id: string;
+  nickname: string;
+  content: string;
+  type: string;
+} | null;
 export type MessageDTO = {
   id: string;
   nickname: string;
   clientId: string | null;
   content: string;
-  type: "text" | "image";
+  type: MediaType;
   imageUrl: string | null;
+  replyTo: ReplyPreview;
   createdAt: string;
 };
+
+function coerceType(t: string): MediaType {
+  return t === "image" || t === "audio" || t === "video" ? t : "text";
+}
 
 // Buat room baru dengan kode unik (retry jika bentrok).
 export async function createRoom(): Promise<{ id: string; code: string }> {
@@ -79,6 +91,9 @@ export async function getMessages(roomId: string): Promise<MessageDTO[]> {
       type: true,
       imageUrl: true,
       createdAt: true,
+      replyTo: {
+        select: { id: true, nickname: true, content: true, type: true },
+      },
     },
   });
   // ambil N terakhir tapi kembalikan urut lama -> baru
@@ -93,14 +108,28 @@ export function toMessageDTO(m: {
   type: string;
   imageUrl: string | null;
   createdAt: Date;
+  replyTo?: {
+    id: string;
+    nickname: string;
+    content: string;
+    type: string;
+  } | null;
 }): MessageDTO {
   return {
     id: m.id,
     nickname: m.nickname,
     clientId: m.clientId ?? null,
     content: m.content,
-    type: m.type === "image" ? "image" : "text",
+    type: coerceType(m.type),
     imageUrl: m.imageUrl ?? null,
+    replyTo: m.replyTo
+      ? {
+          id: m.replyTo.id,
+          nickname: m.replyTo.nickname,
+          content: m.replyTo.content,
+          type: m.replyTo.type,
+        }
+      : null,
     createdAt: m.createdAt.toISOString(),
   };
 }

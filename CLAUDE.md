@@ -63,15 +63,13 @@ History pesan (urut lama → baru, dibatasi 200 terakhir).
 - **404** → `{ "error": "Room tidak ditemukan" }`
 
 ### `POST /api/rooms/:code/upload`
-Upload satu gambar (multipart/form-data, field `image`). Disimpan di filesystem BE.
-- Batas: mime `image/jpeg|png|gif|webp`, ukuran ≤ 5 MB.
-- **201** → `{ "imageUrl": "/api/uploads/<file>" }` — dipakai FE untuk emit `send_message`.
-- **400** → `{ "error": "File harus berupa gambar" }` / validasi lain
-- **404** → `{ "error": "Room tidak ditemukan" }`
-- **413** → `{ "error": "Gambar terlalu besar (maks 5MB)" }`
+Upload satu media (multipart/form-data, field `file`) — gambar / audio / video. Disimpan di filesystem BE.
+- Batas mime & ukuran: image `jpeg|png|gif|webp` ≤ 5 MB; audio `webm|mp4|mpeg|ogg|aac` ≤ 10 MB; video `mp4|webm|quicktime` ≤ 25 MB.
+- **201** → `{ "url": "/api/uploads/<file>", "kind": "image"|"audio"|"video" }` — dipakai FE untuk emit `send_message`.
+- **400** → `{ "error": "..." }` / **404** room tidak ada / **413** ukuran melebihi batas.
 
-Gambar disajikan statis di `GET /api/uploads/<file>`. **Auto-hapus permanen 24 jam** setelah dikirim
-(file + row pesan gambar dihapus oleh cleanup job di BE) agar tidak memenuhi disk.
+Media disajikan statis di `GET /api/uploads/<file>`. **Auto-hapus permanen 24 jam** setelah dikirim
+(file + row pesan media dihapus oleh cleanup job di BE) agar tidak memenuhi disk.
 
 ### Tipe bersama
 ```ts
@@ -84,9 +82,10 @@ type Message = {
   id: string;
   nickname: string;
   clientId: string | null;         // identitas pengirim (utk tentukan "bubble sendiri" lintas sesi)
-  content: string;                 // teks / caption (boleh "" untuk gambar)
-  type: "text" | "image";
-  imageUrl: string | null;         // path gambar bila type=image (null jika sudah kadaluarsa)
+  content: string;                 // teks / caption (boleh "" untuk media)
+  type: "text" | "image" | "audio" | "video";
+  imageUrl: string | null;         // URL media (image/audio/video); null jika kadaluarsa
+  replyTo: { id: string; nickname: string; content: string; type: string } | null;
   createdAt: string /* ISO */;
 };
 ```
@@ -103,7 +102,7 @@ Path default Socket.IO: `/socket.io`.
 | Event | Payload | Keterangan |
 |-------|---------|-----------|
 | `join_room` | `{ code: string, nickname?: string, clientId?: string }` | Gabung room. Server enforce max 3. `clientId` = identitas perangkat stabil (dari `localStorage`): kalau sudah pernah join room ini, kursinya **dipakai ulang** (bukan kursi baru) & nickname dipertahankan. |
-| `send_message` | `{ content?: string, imageUrl?: string }` | Kirim pesan. Teks: `content` wajib. Gambar: `imageUrl` (dari endpoint upload) + `content` opsional sbg caption. |
+| `send_message` | `{ content?, imageUrl?, mediaType?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType` (`image`/`audio`/`video`) + `content` opsional (caption). `replyToId` = balas pesan lain. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
 | `leave_room` | _(kosong)_ | Keluar room secara eksplisit. |
@@ -161,13 +160,14 @@ Enforcement "max 3": `COUNT(participants WHERE room_id=? AND is_active=true) < 3
 | nickname | text | |
 | client_id | text nullable | identitas pengirim (FE pakai utk render bubble sendiri) |
 | content | text | teks/caption, sudah di-trim & di-sanitasi |
-| type | text | `text` \| `image`, default `text` |
-| image_url | text nullable | path gambar bila type=image |
-| expires_at | timestamptz nullable | waktu kadaluarsa gambar (created_at + 24 jam) |
+| type | text | `text` \| `image` \| `audio` \| `video`, default `text` |
+| image_url | text nullable | path media (image/audio/video) |
+| reply_to_id | text nullable | id pesan yang dibalas (self-FK, on delete set null) |
+| expires_at | timestamptz nullable | waktu kadaluarsa media (created_at + 24 jam) |
 | created_at | timestamptz | default now |
 
-**Auto-hapus gambar:** cleanup job BE hapus file di `uploads/` yang berumur >24 jam
-(berdasarkan mtime) + hapus row pesan `type=image` yang `expires_at < now`. Disk tetap bersih.
+**Auto-hapus media:** cleanup job BE hapus file di `uploads/` yang berumur >24 jam
+(berdasarkan mtime) + hapus row pesan media (`type` image/audio/video) yang `expires_at < now`. Disk tetap bersih.
 
 ---
 

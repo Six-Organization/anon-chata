@@ -46,12 +46,15 @@ model Message {
   nickname  String
   clientId  String?   @map("client_id")
   content   String
-  type      String    @default("text") // "text" | "image"
-  imageUrl  String?   @map("image_url")
-  expiresAt DateTime? @map("expires_at") // gambar: created_at + 24 jam
+  type      String    @default("text") // "text" | "image" | "audio" | "video"
+  imageUrl  String?   @map("image_url") // URL media (image/audio/video)
+  replyToId String?   @map("reply_to_id")
+  expiresAt DateTime? @map("expires_at") // media: created_at + 24 jam
   createdAt DateTime  @default(now()) @map("created_at")
 
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room    Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  replyTo Message?  @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies Message[] @relation("MessageReply")
 
   @@index([roomId, createdAt])
   @@index([type, expiresAt])

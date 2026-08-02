@@ -59,13 +59,15 @@ export async function getMessages(code: string): Promise<Message[]> {
   return data.messages as Message[];
 }
 
-// Upload satu gambar (multipart). Balikan { imageUrl } untuk emit send_message.
-export async function uploadImage(
+export type MediaKind = "image" | "audio" | "video";
+
+// Upload satu media (gambar/audio/video). Balikan { url, kind } untuk send_message.
+export async function uploadMedia(
   code: string,
   file: File
-): Promise<{ imageUrl: string }> {
+): Promise<{ url: string; kind: MediaKind }> {
   const form = new FormData();
-  form.append("image", file);
+  form.append("file", file);
   const res = await fetch(apiUrl(`/rooms/${encodeURIComponent(code)}/upload`), {
     method: "POST",
     body: form,
