@@ -66,6 +66,11 @@ export function registerSocketHandlers(io: Server): void {
         if (room.pin) {
           const pin =
             typeof payload?.pin === "string" ? payload.pin.trim() : "";
+          if (!pin) {
+            // Belum mencoba PIN (mis. baru buka app) -> minta PIN, JANGAN hitung gagal.
+            socket.emit("pin_required", {});
+            return;
+          }
           if (pin === room.pin) {
             // benar -> reset counter gagal kalau ada
             if (room.pinFailCount > 0) {
