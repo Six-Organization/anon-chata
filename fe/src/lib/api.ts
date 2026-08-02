@@ -61,17 +61,40 @@ export async function getMessages(code: string): Promise<Message[]> {
 
 export type MediaKind = "image" | "audio" | "video";
 
-// Upload satu media (gambar/audio/video). Balikan { url, kind } untuk send_message.
-export async function uploadMedia(
+// Upload media dengan progress (XHR) — dipakai untuk kirim di background.
+export function uploadMediaWithProgress(
   code: string,
-  file: File
+  file: File,
+  onProgress?: (pct: number) => void
 ): Promise<{ url: string; kind: MediaKind }> {
-  const form = new FormData();
-  form.append("file", file);
-  const res = await fetch(apiUrl(`/rooms/${encodeURIComponent(code)}/upload`), {
-    method: "POST",
-    body: form,
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", apiUrl(`/rooms/${encodeURIComponent(code)}/upload`));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error("Respons upload tidak valid"));
+        }
+      } else {
+        let msg = `Error ${xhr.status}`;
+        try {
+          msg = JSON.parse(xhr.responseText).error || msg;
+        } catch {
+          /* keep default */
+        }
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Gagal terhubung ke server"));
+    xhr.send(form);
   });
-  if (!res.ok) throw new Error(await parseError(res));
-  return res.json();
 }

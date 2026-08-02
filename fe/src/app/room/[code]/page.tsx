@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Socket } from "socket.io-client";
 import { createSocket } from "@/lib/socket";
-import { uploadMedia, mediaUrl } from "@/lib/api";
+import { uploadMediaWithProgress, mediaUrl, type MediaKind } from "@/lib/api";
 import {
   getClientId,
   getSavedNickname,
@@ -25,10 +25,24 @@ import type {
   RoomPinChangedPayload,
 } from "@/lib/types";
 
-// Item yang ditampilkan di daftar: pesan chat atau notifikasi sistem.
+// Media yang sedang di-upload di background (bubble sementara sendiri).
+type PendingItem = {
+  kind: "pending";
+  id: string;
+  caption: string;
+  mediaKind: MediaKind;
+  previewUrl?: string;
+  progress: number;
+  error: boolean;
+  file: File;
+  replyToId?: string;
+};
+
+// Item yang ditampilkan di daftar: pesan chat, notifikasi sistem, atau media pending.
 type ChatItem =
   | { kind: "chat"; msg: Message }
-  | { kind: "system"; id: string; text: string };
+  | { kind: "system"; id: string; text: string }
+  | PendingItem;
 
 export default function RoomPage() {
   const router = useRouter();
@@ -45,7 +59,6 @@ export default function RoomPage() {
   const [input, setInput] = useState("");
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [recording, setRecording] = useState(false);
@@ -235,28 +248,92 @@ export default function RoomPage() {
     stopTyping();
   }
 
-  // Upload + kirim satu media (dipakai tombol lampir file & voice note).
-  async function sendMedia(file: File) {
+  function mediaKindOf(file: File): MediaKind {
+    if (file.type.startsWith("video/")) return "video";
+    if (file.type.startsWith("audio/")) return "audio";
+    return "image";
+  }
+
+  // Antre media untuk dikirim di BACKGROUND: bubble sementara muncul dgn progress,
+  // composer langsung kosong lagi supaya user bisa lanjut chat.
+  function queueMedia(file: File) {
     if (!socketRef.current) return;
     setNotice(null);
-    setUploading(true);
+    const mediaKind = mediaKindOf(file);
+    const previewUrl =
+      mediaKind === "image" || mediaKind === "video"
+        ? URL.createObjectURL(file)
+        : undefined;
+    const id = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const caption = input.trim();
+    const replyToId = replyingTo?.id;
+    setItems((prev) => [
+      ...prev,
+      { kind: "pending", id, caption, mediaKind, previewUrl, progress: 0, error: false, file, replyToId },
+    ]);
+    setInput("");
+    setReplyingTo(null);
+    stopTyping();
+    void startUpload(id, file, caption, mediaKind, replyToId);
+  }
+
+  async function startUpload(
+    id: string,
+    file: File,
+    caption: string,
+    mediaKind: MediaKind,
+    replyToId?: string
+  ) {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.kind === "pending" && it.id === id
+          ? { ...it, error: false, progress: 0 }
+          : it
+      )
+    );
     try {
-      const { url, kind } = await uploadMedia(code, file);
-      const caption = input.trim();
-      socketRef.current.emit("send_message", {
+      const { url, kind } = await uploadMediaWithProgress(code, file, (pct) => {
+        setItems((prev) =>
+          prev.map((it) =>
+            it.kind === "pending" && it.id === id ? { ...it, progress: pct } : it
+          )
+        );
+      });
+      socketRef.current?.emit("send_message", {
         imageUrl: url,
         mediaType: kind,
         content: caption,
-        replyToId: replyingTo?.id,
+        replyToId,
       });
-      setInput("");
-      setReplyingTo(null);
-      stopTyping();
+      removePending(id); // pesan asli akan datang lewat broadcast
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : "Gagal mengunggah media");
-    } finally {
-      setUploading(false);
+      setItems((prev) =>
+        prev.map((it) =>
+          it.kind === "pending" && it.id === id ? { ...it, error: true } : it
+        )
+      );
+      setNotice(err instanceof Error ? err.message : "Gagal mengirim media");
     }
+  }
+
+  function removePending(id: string) {
+    setItems((prev) => {
+      const it = prev.find((x) => x.kind === "pending" && x.id === id);
+      if (it && it.kind === "pending" && it.previewUrl) {
+        URL.revokeObjectURL(it.previewUrl);
+      }
+      return prev.filter((x) => !(x.kind === "pending" && x.id === id));
+    });
+  }
+
+  function retryPending(item: PendingItem) {
+    void startUpload(
+      item.id,
+      item.file,
+      item.caption,
+      item.mediaKind,
+      item.replyToId
+    );
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -267,7 +344,7 @@ export default function RoomPage() {
       setNotice("Hanya bisa gambar atau video");
       return;
     }
-    void sendMedia(file);
+    queueMedia(file);
   }
 
   // ---- Voice note (rekam mikrofon) ----
@@ -298,7 +375,7 @@ export default function RoomPage() {
         });
         if (blob.size === 0) return;
         const ext = (mr.mimeType || "").includes("mp4") ? "m4a" : "webm";
-        await sendMedia(new File([blob], `voice.${ext}`, { type: blob.type }));
+        queueMedia(new File([blob], `voice.${ext}`, { type: blob.type }));
       };
       mediaRecorderRef.current = mr;
       mr.start();
@@ -571,6 +648,13 @@ export default function RoomPage() {
                 {it.text}
               </span>
             </div>
+          ) : it.kind === "pending" ? (
+            <PendingBubble
+              key={it.id}
+              item={it}
+              onRetry={() => retryPending(it)}
+              onCancel={() => removePending(it.id)}
+            />
           ) : (
             <MessageBubble
               key={it.msg.id}
@@ -653,27 +737,23 @@ export default function RoomPage() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={!connected || uploading}
+              disabled={!connected}
               aria-label="Kirim gambar atau video"
               title="Gambar / video"
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
             >
-              {uploading ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand" />
-              ) : (
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <path d="M21 15l-5-5L5 21" />
-                </svg>
-              )}
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
             </button>
 
             {/* Voice note */}
             <button
               type="button"
               onClick={startRecording}
-              disabled={!connected || uploading}
+              disabled={!connected}
               aria-label="Rekam pesan suara"
               title="Pesan suara"
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
@@ -728,6 +808,70 @@ function mediaLabel(type: string): string {
 
 function replyPreviewText(m: { content: string; type: string }): string {
   return m.content && m.content.trim() ? m.content : mediaLabel(m.type);
+}
+
+// Bubble media yang sedang di-upload (background) — progress + retry.
+function PendingBubble({
+  item,
+  onRetry,
+  onCancel,
+}: {
+  item: PendingItem;
+  onRetry: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[78%] rounded-2xl rounded-br-sm bg-brand px-3 py-2 text-sm text-white shadow-sm">
+        {item.previewUrl && item.mediaKind === "image" && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.previewUrl}
+            alt=""
+            className="max-h-64 w-auto max-w-full rounded-lg object-cover opacity-80"
+          />
+        )}
+        {item.previewUrl && item.mediaKind === "video" && (
+          <video
+            src={item.previewUrl}
+            muted
+            className="max-h-64 max-w-full rounded-lg opacity-80"
+          />
+        )}
+        {item.mediaKind === "audio" && <p className="py-1">🎤 Pesan suara</p>}
+
+        {item.caption && (
+          <p className="mt-1 whitespace-pre-wrap break-words">{item.caption}</p>
+        )}
+
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-white/90">
+          {item.error ? (
+            <>
+              <span>Gagal mengirim</span>
+              <button
+                onClick={onRetry}
+                className="rounded bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30"
+              >
+                Coba lagi
+              </button>
+              <button
+                onClick={onCancel}
+                aria-label="Batal"
+                className="rounded bg-white/20 px-2 py-0.5 hover:bg-white/30"
+              >
+                ×
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              <span>Mengirim… {item.progress}%</span>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MessageBubble({
