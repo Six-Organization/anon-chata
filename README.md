@@ -5,7 +5,7 @@ Monorepo dengan pemisahan tegas **Backend (`be/`)** dan **Frontend (`fe/`)**.
 
 - **Backend:** Node.js + TypeScript + Express + Socket.IO + Prisma + PostgreSQL
 - **Frontend:** Next.js (App Router) + TypeScript + Tailwind + socket.io-client
-- **Deploy:** Docker Compose + Nginx (reverse proxy + WebSocket) + Certbot (HTTPS)
+- **Deploy:** Docker Compose — lokal via Nginx (HTTP), produksi via **Caddy** (HTTPS/Let's Encrypt otomatis) + GitHub Actions CI/CD
 
 > Kontrak BE↔FE (REST + Socket) ada di **[`CLAUDE.md`](CLAUDE.md)** — baca itu dulu kalau mau ubah API.
 
@@ -113,83 +113,54 @@ sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-### 2. Clone & konfigurasi
-```bash
-git clone <URL_REPO> chat-web
-cd chat-web
+> **Produksi pakai Caddy sebagai edge** (bukan nginx): HTTPS/Let's Encrypt **otomatis**
+> + auto-renew. nginx hanya untuk lokal (profile `local`).
 
-# (disarankan) buat .env root untuk kredensial produksi
+### 2. Firewall + hardening singkat
+```bash
+sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw enable
+```
+(SSH sebaiknya key-only: set `PasswordAuthentication no` di `/etc/ssh/sshd_config`, lalu `sudo systemctl restart ssh`.)
+
+### 3. Arahkan subdomain
+Buat **A record** `chat.domainmu.com` → **IP VPS**. Tunggu propagasi (cek `dig +short chat.domainmu.com`).
+
+### 4. Clone & konfigurasi `.env`
+```bash
+git clone https://github.com/Six-Organization/anon-chata.git ~/chat-web
+cd ~/chat-web
+```
+```bash
 cat > .env <<'EOF'
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+DOMAIN=chat.domainmu.com
+EMAIL=kamu@domainmu.com
 POSTGRES_USER=chat
 POSTGRES_PASSWORD=ganti-password-kuat
 POSTGRES_DB=chatdb
 CORS_ORIGIN=*
-NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_API_URL=
 NEXT_PUBLIC_SOCKET_URL=
 EOF
 ```
+> Catatan: JANGAN set `COMPOSE_PROFILES=local` di produksi (itu khusus dev).
 
-### 3. Arahkan domain
-Buat **A record** DNS `your-domain.com` → IP VPS. Tunggu propagasi.
-Edit `nginx/default.conf`, ganti `server_name _;` menjadi `server_name your-domain.com;`.
-
-### 4. Jalankan
+### 5. Jalankan (HTTPS otomatis)
 ```bash
 docker compose up -d --build
 ```
-Cek: `docker compose ps` dan `docker compose logs -f be`.
-Sekarang situs bisa diakses di `http://your-domain.com`.
-
-### 5. HTTPS via Let's Encrypt / Certbot
-
-**Cara paling ringkas (Certbot standalone, sekali jalan):**
-Karena Nginx berada di container dan memakai port 80, gunakan webroot ACME.
-
-1. Aktifkan blok ACME di `nginx/default.conf` dan mount volume webroot.
-   Uncomment di `nginx/default.conf`:
-   ```nginx
-   location /.well-known/acme-challenge/ {
-       root /var/www/certbot;
-   }
-   ```
-   Dan di `docker-compose.yml` service `nginx`, uncomment:
-   ```yaml
-   - ./nginx/certbot/www:/var/www/certbot:ro
-   - /etc/letsencrypt:/etc/letsencrypt:ro
-   ports:
-     - "443:443"
-   ```
-   Lalu `docker compose up -d nginx`.
-
-2. Minta sertifikat memakai Certbot (di host):
-   ```bash
-   sudo apt-get install -y certbot
-   sudo mkdir -p ./nginx/certbot/www
-   sudo certbot certonly --webroot -w ./nginx/certbot/www \
-     -d your-domain.com --email you@example.com --agree-tos --no-eff-email
-   ```
-
-3. Aktifkan server block `443` di `nginx/default.conf` (contoh sudah disediakan
-   di bagian bawah file — salin semua `location` dari block port 80), lalu:
-   ```bash
-   docker compose restart nginx
-   ```
-
-4. Auto-renew (cron host):
-   ```bash
-   echo "0 3 * * * root certbot renew --webroot -w /path/chat-web/nginx/certbot/www --quiet && docker compose -f /path/chat-web/docker-compose.yml restart nginx" \
-     | sudo tee /etc/cron.d/certbot-renew
-   ```
-
-> **Alternatif lebih simpel:** pasang Nginx + Certbot langsung di host (bukan container),
-> jadikan reverse proxy ke `fe`/`be` yang di-expose ke `127.0.0.1`, lalu
-> `sudo certbot --nginx -d your-domain.com` mengurus sertifikat + renew otomatis.
+Caddy langsung menerbitkan sertifikat untuk `DOMAIN`. Cek:
+```bash
+docker compose logs -f caddy
+```
+Buka `https://chat.domainmu.com` — sudah HTTPS, tanpa langkah Certbot manual.
+Sertifikat tersimpan di volume `caddy_data` (persist, auto-renew).
 
 ### 6. Update aplikasi
 ```bash
-git pull
-docker compose up -d --build
+git pull && docker compose up -d --build
 ```
+(atau otomatis via GitHub Actions — lihat bagian D.)
 
 ---
 
@@ -209,19 +180,8 @@ Workflow: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml).
 - **CD** (push ke `main`, setelah CI hijau): SSH ke VPS → `git reset --hard origin/main` → `docker compose up -d --build` → prune image lama.
 
 ### Prasyarat di VPS (sekali saja)
-1. VPS sudah punya Docker + Compose (lihat bagian C.1) dan repo hasil `git clone`.
-2. Buat `.env` produksi di root repo VPS (password kuat, `WEB_PORT=80`):
-   ```bash
-   cat > .env <<'EOF'
-   WEB_PORT=80
-   POSTGRES_USER=chat
-   POSTGRES_PASSWORD=ganti-password-kuat
-   POSTGRES_DB=chatdb
-   CORS_ORIGIN=*
-   NEXT_PUBLIC_API_URL=/api
-   NEXT_PUBLIC_SOCKET_URL=
-   EOF
-   ```
+1. VPS sudah punya Docker + Compose (bagian C.1), repo hasil `git clone`, dan `.env` produksi (bagian C.4 — pakai `COMPOSE_FILE`/`DOMAIN`, **bukan** `COMPOSE_PROFILES=local`).
+2. `.env` gitignore → **aman dari `git reset --hard`** pipeline. Sertifikat HTTPS juga persist di volume `caddy_data`, jadi deploy berulang tidak menerbitkan ulang.
 3. Pastikan user SSH bisa menjalankan `docker` tanpa sudo (`sudo usermod -aG docker $USER`, lalu re-login).
 4. (Disarankan) tambah swap kalau RAM VPS ≤1 GB, karena `next build` cukup berat:
    ```bash
