@@ -38,7 +38,12 @@ export function registerSocketHandlers(io: Server): void {
     // ---- client -> server: join_room ----
     socket.on(
       "join_room",
-      async (payload: { code?: string; nickname?: string; clientId?: string }) => {
+      async (payload: {
+        code?: string;
+        nickname?: string;
+        clientId?: string;
+        pin?: string;
+      }) => {
       try {
         if (state.roomId) {
           socket.emit("error", { message: "Kamu sudah berada di sebuah room" });
@@ -53,6 +58,18 @@ export function registerSocketHandlers(io: Server): void {
         if (!room) {
           socket.emit("error", { message: "Room tidak ditemukan" });
           return;
+        }
+
+        // Gate PIN: kalau room ber-PIN, wajib cocok (diminta tiap kali join).
+        if (room.pin) {
+          const pin =
+            typeof payload?.pin === "string" ? payload.pin.trim() : "";
+          if (pin !== room.pin) {
+            socket.emit("pin_required", {
+              message: pin ? "PIN salah" : undefined,
+            });
+            return;
+          }
         }
 
         const nick = normalizeNickname(payload?.nickname);
@@ -120,6 +137,7 @@ export function registerSocketHandlers(io: Server): void {
           nickname: participant.nickname,
           participants,
           messages,
+          hasPin: !!room.pin,
         });
 
         // beri tahu yang lain
@@ -238,6 +256,36 @@ export function registerSocketHandlers(io: Server): void {
         });
       } catch (err) {
         console.error("mark_read error:", err);
+      }
+    });
+
+    // ---- client -> server: set_room_pin (set/ganti/hapus PIN room) ----
+    socket.on("set_room_pin", async (payload: { pin?: string | null }) => {
+      try {
+        if (!state.roomId) {
+          socket.emit("error", { message: "Belum join room" });
+          return;
+        }
+        let pin: string | null = null;
+        const raw = payload?.pin;
+        if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
+          const p = String(raw).trim();
+          if (!/^\d{4}$/.test(p)) {
+            socket.emit("error", { message: "PIN harus 4 angka" });
+            return;
+          }
+          pin = p;
+        }
+        await prisma.room.update({
+          where: { id: state.roomId },
+          data: { pin },
+        });
+        io.to(roomChannel(state.roomId)).emit("room_pin_changed", {
+          hasPin: pin !== null,
+        });
+      } catch (err) {
+        console.error("set_room_pin error:", err);
+        socket.emit("error", { message: "Gagal mengubah PIN" });
       }
     });
 

@@ -15,6 +15,7 @@ datasource db {
 model Room {
   id        String   @id @default(uuid())
   code      String   @unique
+  pin       String? // PIN 4 digit opsional (gate masuk room)
   createdAt DateTime @default(now()) @map("created_at")
 
   participants Participant[]

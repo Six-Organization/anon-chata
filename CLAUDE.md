@@ -101,7 +101,8 @@ Path default Socket.IO: `/socket.io`.
 
 | Event | Payload | Keterangan |
 |-------|---------|-----------|
-| `join_room` | `{ code: string, nickname?: string, clientId?: string }` | Gabung room. Server enforce max 3. `clientId` = identitas perangkat stabil (dari `localStorage`): kalau sudah pernah join room ini, kursinya **dipakai ulang** (bukan kursi baru) & nickname dipertahankan. |
+| `join_room` | `{ code, nickname?, clientId?, pin? }` | Gabung room. Server enforce max 3. `clientId` = identitas perangkat stabil (dari `localStorage`): kalau sudah pernah join room ini, kursinya **dipakai ulang** (bukan kursi baru) & nickname dipertahankan. `pin` = wajib kalau room ber-PIN. |
+| `set_room_pin` | `{ pin: string \| null }` | Set/ganti/hapus PIN room (harus sudah join). `pin` 4 digit angka, atau `null`/kosong untuk hapus. |
 | `send_message` | `{ content?, imageUrl?, mediaType?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType` (`image`/`audio`/`video`) + `content` opsional (caption). `replyToId` = balas pesan lain. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
@@ -111,8 +112,10 @@ Path default Socket.IO: `/socket.io`.
 
 | Event | Payload | Keterangan |
 |-------|---------|-----------|
-| `joined` | `{ participantId: string; nickname: string; participants: Participant[]; messages: Message[] }` | Sukses join; kirim state awal. |
+| `joined` | `{ participantId: string; nickname: string; participants: Participant[]; messages: Message[]; hasPin: boolean }` | Sukses join; kirim state awal (+ status PIN room). |
 | `error` | `{ message: string }` | Gagal (mis. `"Room penuh"`, `"Room tidak ditemukan"`). |
+| `pin_required` | `{ message?: string }` | Room ber-PIN & PIN belum/tidak cocok. FE tampilkan input PIN, lalu emit `join_room` lagi dengan `pin`. |
+| `room_pin_changed` | `{ hasPin: boolean }` | PIN room baru di-set/dihapus. FE update indikator gembok. |
 | `message` | `Message` | Pesan baru broadcast ke semua anggota room. |
 | `participant_joined` | `{ nickname: string; participants: Participant[] }` | Ada yang bergabung. |
 | `participant_left` | `{ nickname: string; participants: Participant[] }` | Ada yang keluar/disconnect. |
@@ -133,6 +136,7 @@ Schema lengkap di [`be/prisma/schema.prisma`](be/prisma/schema.prisma).
 |-------|------|---------|
 | id | uuid (PK) | |
 | code | text unik | shareable, 6 char |
+| pin | text nullable | PIN 4 digit (opsional). Kalau di-set, wajib dimasukkan tiap join. Default null. |
 | created_at | timestamptz | default now |
 
 **participants**

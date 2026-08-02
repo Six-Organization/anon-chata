@@ -21,6 +21,8 @@ import type {
   TypingPayload,
   SocketErrorPayload,
   ReadReceiptPayload,
+  PinRequiredPayload,
+  RoomPinChangedPayload,
 } from "@/lib/types";
 
 // Item yang ditampilkan di daftar: pesan chat atau notifikasi sistem.
@@ -48,6 +50,13 @@ export default function RoomPage() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
+  const [hasPin, setHasPin] = useState(false);
+  const [pinRequired, setPinRequired] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [showPinPanel, setShowPinPanel] = useState(false);
+  const [pinSetInput, setPinSetInput] = useState("");
+  const pinRef = useRef<string>(""); // PIN yang dipakai sesi ini (memori saja)
 
   const listEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -79,8 +88,14 @@ export default function RoomPage() {
 
     socket.on("connect", () => {
       setConnected(true);
-      // (re)join saat konek / reconnect (clientId = pakai-ulang kursi + identitas)
-      socket.emit("join_room", { code, nickname, clientId });
+      // (re)join saat konek / reconnect. pinRef diisi kalau room ber-PIN
+      // (diingat sementara agar reconnect tidak minta PIN lagi).
+      socket.emit("join_room", {
+        code,
+        nickname,
+        clientId,
+        pin: pinRef.current || undefined,
+      });
     });
 
     socket.on("disconnect", () => setConnected(false));
@@ -90,6 +105,9 @@ export default function RoomPage() {
       setMyParticipantId(p.participantId);
       setParticipants(p.participants);
       setItems(p.messages.map((msg) => ({ kind: "chat", msg })));
+      setHasPin(p.hasPin);
+      setPinRequired(false);
+      setPinError(null);
       saveNickname(p.nickname); // pertahankan nama utk sesi berikutnya
       saveSession(code); // ingat room ini (auto-rejoin < 5 jam)
       addRecentRoom(code); // catat di riwayat room (shortcut di home)
@@ -113,6 +131,17 @@ export default function RoomPage() {
           pt.id === p.participantId ? { ...pt, lastReadAt: p.lastReadAt } : pt
         )
       );
+    });
+
+    socket.on("pin_required", (p: PinRequiredPayload) => {
+      setPinRequired(true);
+      setPinError(p?.message ?? null);
+      setPinInput("");
+    });
+
+    socket.on("room_pin_changed", (p: RoomPinChangedPayload) => {
+      setHasPin(p.hasPin);
+      addSystem(p.hasPin ? "🔒 PIN room diaktifkan" : "🔓 PIN room dihapus");
     });
 
     socket.on("participant_joined", (p: ParticipantChangePayload) => {
@@ -319,6 +348,43 @@ export default function RoomPage() {
     router.push("/");
   }
 
+  // Submit PIN untuk masuk room ber-PIN.
+  function submitPin() {
+    const pin = pinInput.trim();
+    if (!/^\d{4}$/.test(pin)) {
+      setPinError("PIN harus 4 angka");
+      return;
+    }
+    pinRef.current = pin;
+    setPinError(null);
+    socketRef.current?.emit("join_room", {
+      code,
+      nickname: getSavedNickname(),
+      clientId: getClientId(),
+      pin,
+    });
+  }
+
+  // Set/hapus PIN room (dari dalam room).
+  function saveRoomPin() {
+    const pin = pinSetInput.trim();
+    if (!/^\d{4}$/.test(pin)) {
+      setNotice("PIN harus 4 angka");
+      return;
+    }
+    socketRef.current?.emit("set_room_pin", { pin });
+    pinRef.current = pin; // biar reconnect tetap bisa masuk
+    setPinSetInput("");
+    setShowPinPanel(false);
+  }
+
+  function removeRoomPin() {
+    socketRef.current?.emit("set_room_pin", { pin: null });
+    pinRef.current = "";
+    setPinSetInput("");
+    setShowPinPanel(false);
+  }
+
   const shareUrl = useMemo(
     () => (typeof window !== "undefined" ? window.location.href : ""),
     []
@@ -339,6 +405,48 @@ export default function RoomPage() {
           <button
             onClick={() => router.push("/")}
             className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark"
+          >
+            Kembali ke Beranda
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // Layar input PIN (room terkunci)
+  if (pinRequired) {
+    return (
+      <main className="safe-x mx-auto flex min-h-[100dvh] max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
+        <div className="w-full rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+          <div className="mb-2 text-4xl">🔒</div>
+          <h2 className="text-lg font-semibold text-slate-800">Room terkunci</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Masukkan PIN 4 digit untuk masuk.
+          </p>
+          <input
+            type="tel"
+            inputMode="numeric"
+            maxLength={4}
+            value={pinInput}
+            onChange={(e) =>
+              setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))
+            }
+            onKeyDown={(e) => e.key === "Enter" && submitPin()}
+            placeholder="••••"
+            autoFocus
+            className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-3 text-center text-2xl tracking-[0.5em] outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+          />
+          {pinError && <p className="mt-2 text-sm text-red-600">{pinError}</p>}
+          <button
+            onClick={submitPin}
+            disabled={pinInput.length !== 4 || !connected}
+            className="mt-4 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+          >
+            Masuk
+          </button>
+          <button
+            onClick={() => router.push("/")}
+            className="mt-2 text-xs text-slate-400 hover:text-slate-600"
           >
             Kembali ke Beranda
           </button>
@@ -372,13 +480,75 @@ export default function RoomPage() {
             {myNickname && ` • kamu: ${myNickname}`}
           </p>
         </div>
-        <button
-          onClick={leaveRoom}
-          className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-        >
-          Keluar
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => {
+              setShowPinPanel((v) => !v);
+              setPinSetInput("");
+            }}
+            aria-label="PIN room"
+            title={hasPin ? "Room terkunci PIN" : "Kunci room dengan PIN"}
+            className={`grid h-9 w-9 place-items-center rounded-lg border text-base transition ${
+              hasPin
+                ? "border-brand/40 bg-brand/10"
+                : "border-slate-300 hover:bg-slate-100"
+            }`}
+          >
+            {hasPin ? "🔒" : "🔓"}
+          </button>
+          <button
+            onClick={leaveRoom}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Keluar
+          </button>
+        </div>
       </header>
+
+      {/* Panel set PIN */}
+      {showPinPanel && (
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="mb-1.5 text-xs font-medium text-slate-600">
+            {hasPin
+              ? "Room terkunci PIN. Ganti atau hapus di bawah."
+              : "Kunci room dengan PIN 4 digit (wajib diisi tiap masuk)."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="tel"
+              inputMode="numeric"
+              maxLength={4}
+              value={pinSetInput}
+              onChange={(e) =>
+                setPinSetInput(e.target.value.replace(/\D/g, "").slice(0, 4))
+              }
+              placeholder="4 digit"
+              className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-center tracking-[0.3em] outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+            />
+            <button
+              onClick={saveRoomPin}
+              disabled={pinSetInput.length !== 4}
+              className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+            >
+              {hasPin ? "Ganti" : "Kunci"}
+            </button>
+            {hasPin && (
+              <button
+                onClick={removeRoomPin}
+                className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+              >
+                Hapus PIN
+              </button>
+            )}
+            <button
+              onClick={() => setShowPinPanel(false)}
+              className="ml-auto text-sm text-slate-400 hover:text-slate-600"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Peserta */}
       <div className="flex flex-wrap gap-2 border-b border-slate-100 bg-white px-4 py-2">
