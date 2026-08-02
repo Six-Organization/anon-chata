@@ -71,7 +71,12 @@ export default function RoomPage() {
   const [pinSetInput, setPinSetInput] = useState("");
   const pinRef = useRef<string>(""); // PIN yang dipakai sesi ini (memori saja)
 
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  const listRef = useRef<HTMLDivElement | null>(null);
   const listEndRef = useRef<HTMLDivElement | null>(null);
+  const atBottomRef = useRef<boolean>(true);
+  const didInitialScrollRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emitTypingRef = useRef<boolean>(false);
@@ -185,10 +190,42 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 
-  // ---- Auto-scroll ke bawah ----
+  // ---- Auto-scroll: instan ke bawah saat pertama masuk; setelah itu hanya
+  //      ikut ke bawah kalau user memang sedang di dasar (biar bisa scroll ke atas). ----
   useEffect(() => {
-    listEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = listRef.current;
+    if (!el) return;
+    if (!didInitialScrollRef.current) {
+      if (items.length === 0) return; // tunggu pesan awal termuat
+      el.scrollTop = el.scrollHeight; // lompat instan tanpa animasi
+      didInitialScrollRef.current = true;
+      atBottomRef.current = true;
+      return;
+    }
+    if (atBottomRef.current) {
+      listEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [items, typingUser]);
+
+  // Lacak apakah user sedang di dasar daftar (dipakai auto-scroll di atas).
+  function onListScroll() {
+    const el = listRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    atBottomRef.current = dist < 100;
+  }
+
+  // Lompat ke pesan yang dibalas (klik kutipan reply) + kedip highlight.
+  function scrollToMessage(id: string) {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) {
+      setNotice("Pesan itu tidak ada di layar (mungkin sudah lama/kadaluarsa)");
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(id);
+    window.setTimeout(() => setHighlightId((v) => (v === id ? null : v)), 1600);
+  }
 
   // ---- Tandai terbaca saat tab kembali aktif / fokus ----
   useEffect(() => {
@@ -640,7 +677,11 @@ export default function RoomPage() {
       </div>
 
       {/* Daftar pesan */}
-      <div className="chat-scroll flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4">
+      <div
+        ref={listRef}
+        onScroll={onListScroll}
+        className="chat-scroll flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4"
+      >
         {items.map((it) =>
           it.kind === "system" ? (
             <div key={it.id} className="text-center">
@@ -661,7 +702,9 @@ export default function RoomPage() {
               msg={it.msg}
               mine={isMine(it.msg)}
               readers={readersFor(it.msg)}
+              highlighted={highlightId === it.msg.id}
               onReply={() => setReplyingTo(it.msg)}
+              onJumpTo={scrollToMessage}
             />
           )
         )}
@@ -878,12 +921,16 @@ function MessageBubble({
   msg,
   mine,
   readers,
+  highlighted,
   onReply,
+  onJumpTo,
 }: {
   msg: Message;
   mine: boolean;
   readers: Participant[];
+  highlighted: boolean;
   onReply: () => void;
+  onJumpTo: (id: string) => void;
 }) {
   const time = new Date(msg.createdAt).toLocaleTimeString("id-ID", {
     hour: "2-digit",
@@ -895,11 +942,12 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+        id={`msg-${msg.id}`}
+        className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm transition-shadow ${
           mine
             ? "rounded-br-sm bg-brand text-white"
             : "rounded-bl-sm bg-white text-slate-800 ring-1 ring-slate-200"
-        }`}
+        } ${highlighted ? "ring-2 ring-amber-400" : ""}`}
       >
         {!mine && (
           <p className="mb-0.5 text-xs font-semibold text-brand-dark">
@@ -907,11 +955,15 @@ function MessageBubble({
           </p>
         )}
 
-        {/* Kutipan pesan yang dibalas */}
+        {/* Kutipan pesan yang dibalas (klik -> lompat ke aslinya) */}
         {msg.replyTo && (
-          <div
-            className={`mb-1 rounded-md border-l-2 px-2 py-1 text-xs ${
-              mine ? "border-white/60 bg-white/15" : "border-brand bg-slate-100"
+          <button
+            type="button"
+            onClick={() => onJumpTo(msg.replyTo!.id)}
+            className={`mb-1 block w-full rounded-md border-l-2 px-2 py-1 text-left text-xs transition ${
+              mine
+                ? "border-white/60 bg-white/15 hover:bg-white/25"
+                : "border-brand bg-slate-100 hover:bg-slate-200"
             }`}
           >
             <p
@@ -926,7 +978,7 @@ function MessageBubble({
             >
               {replyPreviewText(msg.replyTo)}
             </p>
-          </div>
+          </button>
         )}
 
         {/* Media: gambar / video / audio */}
