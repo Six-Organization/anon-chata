@@ -1,0 +1,30 @@
+# Override PRODUKSI — dipakai bersama docker-compose.yml.
+# Aktifkan di VPS lewat .env: COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+# Menambah Caddy sebagai edge dengan HTTPS otomatis (Let's Encrypt) + auto-renew.
+#
+# Base `nginx` TIDAK jalan di produksi karena ada profile "local" dan
+# COMPOSE_PROFILES tidak di-set di VPS.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN di .env}
+      EMAIL: ${EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # sertifikat + akun ACME (persist -> tahan git reset & restart)
+      - caddy_config:/config
+    depends_on:
+      - be
+      - fe
+    networks:
+      - chatnet
+
+volumes:
+  caddy_data:
+  caddy_config:

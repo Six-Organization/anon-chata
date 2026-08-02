@@ -1,0 +1,17 @@
+# Caddy edge untuk PRODUKSI — HTTPS (Let's Encrypt) OTOMATIS + auto-renew.
+# Domain diambil dari env DOMAIN (di .env VPS). Caddy urus sertifikat sendiri.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# REST API + Socket.IO -> backend (termasuk /api/uploads/* untuk gambar)
+	@api path /api/* /socket.io/*
+	handle @api {
+		reverse_proxy be:4000
+	}
+
+	# Sisanya -> frontend Next.js (WebSocket di-proxy otomatis oleh Caddy)
+	handle {
+		reverse_proxy fe:3000
+	}
+}
