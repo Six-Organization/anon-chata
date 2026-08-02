@@ -5,6 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import type { Socket } from "socket.io-client";
 import { createSocket } from "@/lib/socket";
 import { uploadImage, mediaUrl } from "@/lib/api";
+import {
+  getClientId,
+  getSavedNickname,
+  saveNickname,
+  saveSession,
+  clearSession,
+} from "@/lib/identity";
 import type {
   Participant,
   Message,
@@ -29,6 +36,7 @@ export default function RoomPage() {
   const [connected, setConnected] = useState(false);
   const [myNickname, setMyNickname] = useState<string>("");
   const [myParticipantId, setMyParticipantId] = useState<string>("");
+  const [myClientId, setMyClientId] = useState<string>("");
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
@@ -44,16 +52,17 @@ export default function RoomPage() {
 
   // ---- Setup socket sekali per room ----
   useEffect(() => {
-    const nickname =
-      (typeof window !== "undefined" && sessionStorage.getItem("nickname")) || "";
+    const clientId = getClientId();
+    setMyClientId(clientId);
+    const nickname = getSavedNickname();
 
     const socket = createSocket();
     socketRef.current = socket;
 
     socket.on("connect", () => {
       setConnected(true);
-      // (re)join saat konek / reconnect
-      socket.emit("join_room", { code, nickname });
+      // (re)join saat konek / reconnect (clientId = pakai-ulang kursi + identitas)
+      socket.emit("join_room", { code, nickname, clientId });
     });
 
     socket.on("disconnect", () => setConnected(false));
@@ -63,6 +72,8 @@ export default function RoomPage() {
       setMyParticipantId(p.participantId);
       setParticipants(p.participants);
       setItems(p.messages.map((msg) => ({ kind: "chat", msg })));
+      saveNickname(p.nickname); // pertahankan nama utk sesi berikutnya
+      saveSession(code); // ingat room ini (auto-rejoin < 5 jam)
       markRead(); // sudah lihat history
     });
 
@@ -138,6 +149,12 @@ export default function RoomPage() {
       return;
     }
     socketRef.current?.emit("mark_read");
+  }
+
+  // Pesan ini milik saya? Utamakan clientId (stabil lintas sesi), fallback nickname.
+  function isMine(msg: Message): boolean {
+    if (msg.clientId) return msg.clientId === myClientId;
+    return msg.nickname === myNickname;
   }
 
   // Siapa saja yang sudah membaca pesan `msg` (kecuali pengirim & diri sendiri).
@@ -216,6 +233,7 @@ export default function RoomPage() {
   }
 
   function leaveRoom() {
+    clearSession(); // keluar sungguhan -> jangan auto-rejoin lagi
     socketRef.current?.emit("leave_room");
     router.push("/");
   }
@@ -306,7 +324,7 @@ export default function RoomPage() {
             <MessageBubble
               key={it.msg.id}
               msg={it.msg}
-              mine={it.msg.nickname === myNickname}
+              mine={isMine(it.msg)}
               readers={readersFor(it.msg)}
             />
           )

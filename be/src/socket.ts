@@ -22,6 +22,7 @@ interface SocketState {
   code?: string;
   participantId?: string;
   nickname?: string;
+  clientId?: string;
 }
 
 const roomChannel = (roomId: string) => `room:${roomId}`;
@@ -32,7 +33,9 @@ export function registerSocketHandlers(io: Server): void {
     socket.data = state;
 
     // ---- client -> server: join_room ----
-    socket.on("join_room", async (payload: { code?: string; nickname?: string }) => {
+    socket.on(
+      "join_room",
+      async (payload: { code?: string; nickname?: string; clientId?: string }) => {
       try {
         if (state.roomId) {
           socket.emit("error", { message: "Kamu sudah berada di sebuah room" });
@@ -55,25 +58,51 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-        // Enforcement max 3 di level BE (source of truth).
-        if (await isRoomFull(room.id)) {
-          socket.emit("error", { message: "Room penuh" });
-          return;
-        }
+        const clientId =
+          typeof payload?.clientId === "string" && payload.clientId.trim()
+            ? payload.clientId.trim().slice(0, 100)
+            : null;
 
-        const participant = await prisma.participant.create({
-          data: {
-            roomId: room.id,
-            nickname: nick.value,
-            socketId: socket.id,
-            isActive: true,
-          },
-        });
+        // Kalau clientId ini sudah pernah join room ini, pakai ulang kursinya
+        // (biar reconnect/rejoin tidak makan kursi baru & identitas tetap).
+        let participant = clientId
+          ? await prisma.participant.findFirst({
+              where: { roomId: room.id, clientId },
+            })
+          : null;
+
+        if (participant) {
+          // Kursinya nonaktif tapi room keburu penuh (kursinya diambil orang) -> tolak.
+          if (!participant.isActive && (await isRoomFull(room.id))) {
+            socket.emit("error", { message: "Room penuh" });
+            return;
+          }
+          participant = await prisma.participant.update({
+            where: { id: participant.id },
+            data: { isActive: true, socketId: socket.id, nickname: nick.value },
+          });
+        } else {
+          // Peserta baru: enforcement max 3 (source of truth di BE).
+          if (await isRoomFull(room.id)) {
+            socket.emit("error", { message: "Room penuh" });
+            return;
+          }
+          participant = await prisma.participant.create({
+            data: {
+              roomId: room.id,
+              nickname: nick.value,
+              socketId: socket.id,
+              clientId,
+              isActive: true,
+            },
+          });
+        }
 
         state.roomId = room.id;
         state.code = room.code;
         state.participantId = participant.id;
         state.nickname = participant.nickname;
+        state.clientId = clientId ?? undefined;
 
         socket.join(roomChannel(room.id));
 
@@ -127,6 +156,7 @@ export function registerSocketHandlers(io: Server): void {
               data: {
                 roomId: state.roomId,
                 nickname: state.nickname,
+                clientId: state.clientId ?? null,
                 content: caption.value,
                 type: "image",
                 imageUrl,
@@ -147,6 +177,7 @@ export function registerSocketHandlers(io: Server): void {
             data: {
               roomId: state.roomId,
               nickname: state.nickname,
+              clientId: state.clientId ?? null,
               content: msg.value,
             },
           });
@@ -209,11 +240,15 @@ async function handleLeave(io: Server, socket: Socket, state: SocketState) {
   state.participantId = undefined;
 
   try {
-    await prisma.participant.update({
-      where: { id: participantId },
+    // Nonaktifkan HANYA kalau socket ini masih pemegang kursi. Kalau koneksi baru
+    // (reconnect/rejoin) sudah mengambil alih kursi, jangan diutak-atik.
+    const result = await prisma.participant.updateMany({
+      where: { id: participantId, socketId: socket.id },
       data: { isActive: false, socketId: null },
     });
     socket.leave(roomChannel(roomId));
+
+    if (result.count === 0) return; // kursi sudah dipegang koneksi lain
 
     const participants = await getActiveParticipants(roomId);
     io.to(roomChannel(roomId)).emit("participant_left", {

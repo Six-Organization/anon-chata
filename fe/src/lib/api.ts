@@ -40,12 +40,13 @@ export type JoinResult = {
 // (mis. "Room tidak ditemukan", "Room penuh").
 export async function joinRoomCheck(
   code: string,
-  nickname: string
+  nickname: string,
+  clientId?: string
 ): Promise<JoinResult> {
   const res = await fetch(apiUrl(`/rooms/${encodeURIComponent(code)}/join`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nickname }),
+    body: JSON.stringify({ nickname, clientId }),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();

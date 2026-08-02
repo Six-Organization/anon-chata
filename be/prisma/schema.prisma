@@ -28,6 +28,7 @@ model Participant {
   roomId   String   @map("room_id")
   nickname String
   socketId   String?   @map("socket_id")
+  clientId   String?   @map("client_id")
   joinedAt   DateTime  @default(now()) @map("joined_at")
   isActive   Boolean   @default(true) @map("is_active")
   lastReadAt DateTime? @map("last_read_at")
@@ -35,6 +36,7 @@ model Participant {
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@index([roomId, isActive])
+  @@index([roomId, clientId])
   @@map("participants")
 }
 
@@ -42,6 +44,7 @@ model Message {
   id        String    @id @default(uuid())
   roomId    String    @map("room_id")
   nickname  String
+  clientId  String?   @map("client_id")
   content   String
   type      String    @default("text") // "text" | "image"
   imageUrl  String?   @map("image_url")

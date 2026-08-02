@@ -7,6 +7,7 @@ import { UPLOADS_URL_PREFIX } from "../config";
 import {
   createRoom,
   findRoomByCode,
+  findParticipantByClient,
   getActiveParticipants,
   getMessages,
   isRoomFull,
@@ -34,7 +35,16 @@ roomsRouter.post("/:code/join", async (req: Request, res: Response) => {
     return res.status(400).json({ error: nick.error });
   }
 
-  if (await isRoomFull(room.id)) {
+  // Member yang balik (clientId sudah pernah di room ini) tidak dihitung kursi baru.
+  const clientId =
+    typeof req.body?.clientId === "string" && req.body.clientId.trim()
+      ? req.body.clientId.trim()
+      : null;
+  const returning = clientId
+    ? await findParticipantByClient(room.id, clientId)
+    : null;
+
+  if (!returning && (await isRoomFull(room.id))) {
     return res.status(409).json({ error: "Room penuh" });
   }
 

@@ -83,6 +83,7 @@ type Participant = {
 type Message = {
   id: string;
   nickname: string;
+  clientId: string | null;         // identitas pengirim (utk tentukan "bubble sendiri" lintas sesi)
   content: string;                 // teks / caption (boleh "" untuk gambar)
   type: "text" | "image";
   imageUrl: string | null;         // path gambar bila type=image (null jika sudah kadaluarsa)
@@ -101,7 +102,7 @@ Path default Socket.IO: `/socket.io`.
 
 | Event | Payload | Keterangan |
 |-------|---------|-----------|
-| `join_room` | `{ code: string, nickname?: string }` | Gabung room. Server enforce max 3. |
+| `join_room` | `{ code: string, nickname?: string, clientId?: string }` | Gabung room. Server enforce max 3. `clientId` = identitas perangkat stabil (dari `localStorage`): kalau sudah pernah join room ini, kursinya **dipakai ulang** (bukan kursi baru) & nickname dipertahankan. |
 | `send_message` | `{ content?: string, imageUrl?: string }` | Kirim pesan. Teks: `content` wajib. Gambar: `imageUrl` (dari endpoint upload) + `content` opsional sbg caption. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
@@ -142,6 +143,7 @@ Schema lengkap di [`be/prisma/schema.prisma`](be/prisma/schema.prisma).
 | room_id | uuid (FK→rooms) | |
 | nickname | text | |
 | socket_id | text nullable | socket aktif saat ini |
+| client_id | text nullable | identitas perangkat stabil (localStorage); untuk pakai-ulang kursi saat reconnect/rejoin |
 | joined_at | timestamptz | default now |
 | is_active | boolean | true saat online; false saat leave/disconnect |
 | last_read_at | timestamptz nullable | waktu terakhir peserta membaca (untuk read receipts) |
@@ -157,6 +159,7 @@ Enforcement "max 3": `COUNT(participants WHERE room_id=? AND is_active=true) < 3
 | id | uuid (PK) | |
 | room_id | uuid (FK→rooms) | |
 | nickname | text | |
+| client_id | text nullable | identitas pengirim (FE pakai utk render bubble sendiri) |
 | content | text | teks/caption, sudah di-trim & di-sanitasi |
 | type | text | `text` \| `image`, default `text` |
 | image_url | text nullable | path gambar bila type=image |

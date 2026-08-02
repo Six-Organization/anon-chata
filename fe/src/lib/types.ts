@@ -15,6 +15,7 @@ export type ReadReceiptPayload = {
 export type Message = {
   id: string;
   nickname: string;
+  clientId: string | null; // identitas pengirim (utk tentukan bubble sendiri lintas sesi)
   content: string; // teks / caption
   type: "text" | "image";
   imageUrl: string | null; // path gambar bila type=image (null jika kadaluarsa)

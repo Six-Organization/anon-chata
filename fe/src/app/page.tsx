@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createRoom, joinRoomCheck } from "@/lib/api";
+import {
+  getActiveSession,
+  getSavedNickname,
+  saveNickname,
+  getClientId,
+} from "@/lib/identity";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -10,19 +16,24 @@ export default function LandingPage() {
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
 
-  // Simpan nickname supaya room page bisa pakai saat emit join_room.
-  function persistNickname() {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("nickname", nickname.trim());
+  // Auto-rejoin room terakhir kalau sesi masih < 5 jam; kalau tidak, tampilkan landing.
+  useEffect(() => {
+    const session = getActiveSession();
+    if (session) {
+      router.replace(`/room/${session.code}`);
+      return;
     }
-  }
+    setNickname(getSavedNickname());
+    setChecking(false);
+  }, [router]);
 
   async function handleCreate() {
     setError(null);
     setLoading("create");
     try {
-      persistNickname();
+      saveNickname(nickname);
       const { code } = await createRoom();
       router.push(`/room/${code}`);
     } catch (e) {
@@ -41,13 +52,18 @@ export default function LandingPage() {
     setLoading("join");
     try {
       // cek cepat ke server (404 room tidak ada / 409 penuh)
-      await joinRoomCheck(code, nickname.trim());
-      persistNickname();
+      await joinRoomCheck(code, nickname.trim(), getClientId());
+      saveNickname(nickname);
       router.push(`/room/${code}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal gabung room");
       setLoading(null);
     }
+  }
+
+  // Selagi mengecek sesi tersimpan, jangan kedip-kedip landing.
+  if (checking) {
+    return <main className="min-h-[100dvh]" />;
   }
 
   return (

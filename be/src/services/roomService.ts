@@ -10,6 +10,7 @@ export type ParticipantDTO = {
 export type MessageDTO = {
   id: string;
   nickname: string;
+  clientId: string | null;
   content: string;
   type: "text" | "image";
   imageUrl: string | null;
@@ -49,6 +50,11 @@ export async function getActiveParticipants(
   }));
 }
 
+// Cari peserta (aktif/nonaktif) berdasarkan clientId di suatu room.
+export async function findParticipantByClient(roomId: string, clientId: string) {
+  return prisma.participant.findFirst({ where: { roomId, clientId } });
+}
+
 export async function countActiveParticipants(roomId: string): Promise<number> {
   return prisma.participant.count({
     where: { roomId, isActive: true },
@@ -68,6 +74,7 @@ export async function getMessages(roomId: string): Promise<MessageDTO[]> {
     select: {
       id: true,
       nickname: true,
+      clientId: true,
       content: true,
       type: true,
       imageUrl: true,
@@ -81,6 +88,7 @@ export async function getMessages(roomId: string): Promise<MessageDTO[]> {
 export function toMessageDTO(m: {
   id: string;
   nickname: string;
+  clientId: string | null;
   content: string;
   type: string;
   imageUrl: string | null;
@@ -89,6 +97,7 @@ export function toMessageDTO(m: {
   return {
     id: m.id,
     nickname: m.nickname,
+    clientId: m.clientId ?? null,
     content: m.content,
     type: m.type === "image" ? "image" : "text",
     imageUrl: m.imageUrl ?? null,
