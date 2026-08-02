@@ -93,3 +93,27 @@ export function removeRecentRoom(code: string): void {
   const list = getRecentRooms().filter((r) => r.code !== code);
   localStorage.setItem(RECENTS_KEY, JSON.stringify(list));
 }
+
+// ---- Titip PIN sekali-pakai saat pindah room (decoy migration) ----
+// Disimpan di sessionStorage & langsung dihapus setelah dibaca (tidak persisten).
+const PIN_CARRY_PREFIX = "anonchat_pin_carry_";
+
+export function carryPin(code: string, pin: string): void {
+  if (typeof window === "undefined" || !pin) return;
+  try {
+    sessionStorage.setItem(PIN_CARRY_PREFIX + code, pin);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function takeCarriedPin(code: string): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const v = sessionStorage.getItem(PIN_CARRY_PREFIX + code) || "";
+    if (v) sessionStorage.removeItem(PIN_CARRY_PREFIX + code);
+    return v;
+  } catch {
+    return "";
+  }
+}

@@ -13,11 +13,13 @@ import { RULES } from "./config";
 const MEDIA_TYPES = new Set(["image", "audio", "video"]);
 import {
   findRoomByCode,
+  createRoomWithPin,
   getActiveParticipants,
   getMessages,
   isRoomFull,
   toMessageDTO,
 } from "./services/roomService";
+import { sendRoomMigratedAlert } from "./mailer";
 
 // State per-koneksi disimpan di socket.data.
 interface SocketState {
@@ -60,15 +62,33 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-        // Gate PIN: kalau room ber-PIN, wajib cocok (diminta tiap kali join).
+        // Gate PIN + decoy: kalau room ber-PIN, wajib cocok (diminta tiap join).
         if (room.pin) {
           const pin =
             typeof payload?.pin === "string" ? payload.pin.trim() : "";
-          if (pin !== room.pin) {
-            socket.emit("pin_required", {
-              message: pin ? "PIN salah" : undefined,
-            });
-            return;
+          if (pin === room.pin) {
+            // benar -> reset counter gagal kalau ada
+            if (room.pinFailCount > 0) {
+              await prisma.room.update({
+                where: { id: room.id },
+                data: { pinFailCount: 0 },
+              });
+            }
+          } else {
+            const fails = room.pinFailCount + 1;
+            if (fails >= 3) {
+              // 3x gagal beruntun -> pindahkan chat ke room baru, kosongkan room
+              // ini + lepas PIN, lalu BIARKAN pendobrak masuk (kosong = decoy).
+              await migrateRoomToDecoy(io, room);
+              room.pin = null; // sisa proses join tak minta PIN lagi
+            } else {
+              await prisma.room.update({
+                where: { id: room.id },
+                data: { pinFailCount: fails },
+              });
+              socket.emit("pin_required", { message: "PIN salah" });
+              return;
+            }
           }
         }
 
@@ -308,6 +328,36 @@ export function registerSocketHandlers(io: Server): void {
       await handleLeave(io, socket, state);
     });
   });
+}
+
+// Decoy: pindahkan semua chat room lama ke room baru (PIN sama), kosongkan &
+// lepas PIN room lama (jadi honeypot), beri tahu anggota online, kirim email.
+async function migrateRoomToDecoy(
+  io: Server,
+  oldRoom: { id: string; code: string; pin: string | null }
+): Promise<void> {
+  try {
+    const newRoom = await createRoomWithPin(oldRoom.pin);
+    await prisma.message.updateMany({
+      where: { roomId: oldRoom.id },
+      data: { roomId: newRoom.id },
+    });
+    // anggota online diarahkan ke room baru
+    io.to(roomChannel(oldRoom.id)).emit("room_migrated", { code: newRoom.code });
+    // kosongkan peserta room lama + lepas PIN + reset counter
+    await prisma.participant.updateMany({
+      where: { roomId: oldRoom.id },
+      data: { isActive: false, socketId: null },
+    });
+    await prisma.room.update({
+      where: { id: oldRoom.id },
+      data: { pin: null, pinFailCount: 0 },
+    });
+    void sendRoomMigratedAlert(oldRoom.code, newRoom.code); // fire-and-forget
+    console.log(`[decoy] ${oldRoom.code} -> ${newRoom.code} (3x gagal PIN)`);
+  } catch (err) {
+    console.error("[decoy] migrasi gagal:", err);
+  }
 }
 
 async function handleLeave(io: Server, socket: Socket, state: SocketState) {

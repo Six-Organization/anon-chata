@@ -13,10 +13,11 @@ datasource db {
 }
 
 model Room {
-  id        String   @id @default(uuid())
-  code      String   @unique
-  pin       String? // PIN 4 digit opsional (gate masuk room)
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  code         String   @unique
+  pin          String? // PIN 4 digit opsional (gate masuk room)
+  pinFailCount Int      @default(0) @map("pin_fail_count") // gagal PIN beruntun
+  createdAt    DateTime @default(now()) @map("created_at")
 
   participants Participant[]
   messages     Message[]

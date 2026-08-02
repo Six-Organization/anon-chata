@@ -12,6 +12,8 @@ import {
   saveSession,
   clearSession,
   addRecentRoom,
+  carryPin,
+  takeCarriedPin,
 } from "@/lib/identity";
 import type {
   Participant,
@@ -23,6 +25,7 @@ import type {
   ReadReceiptPayload,
   PinRequiredPayload,
   RoomPinChangedPayload,
+  RoomMigratedPayload,
 } from "@/lib/types";
 
 // Media yang sedang di-upload di background (bubble sementara sendiri).
@@ -100,6 +103,8 @@ export default function RoomPage() {
     const clientId = getClientId();
     setMyClientId(clientId);
     const nickname = getSavedNickname();
+    // PIN yang dititipkan saat migrasi decoy (biar tak perlu ketik ulang)
+    pinRef.current = takeCarriedPin(code);
 
     const socket = createSocket();
     socketRef.current = socket;
@@ -160,6 +165,12 @@ export default function RoomPage() {
     socket.on("room_pin_changed", (p: RoomPinChangedPayload) => {
       setHasPin(p.hasPin);
       addSystem(p.hasPin ? "🔒 PIN room diaktifkan" : "🔓 PIN room dihapus");
+    });
+
+    // Decoy aktif (3x gagal PIN): pindah ke room baru, bawa PIN yang sedang dipakai.
+    socket.on("room_migrated", (p: RoomMigratedPayload) => {
+      if (pinRef.current) carryPin(p.code, pinRef.current);
+      router.replace(`/room/${p.code}`);
     });
 
     socket.on("participant_joined", (p: ParticipantChangePayload) => {

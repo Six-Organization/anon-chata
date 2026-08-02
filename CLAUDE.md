@@ -116,6 +116,7 @@ Path default Socket.IO: `/socket.io`.
 | `error` | `{ message: string }` | Gagal (mis. `"Room penuh"`, `"Room tidak ditemukan"`). |
 | `pin_required` | `{ message?: string }` | Room ber-PIN & PIN belum/tidak cocok. FE tampilkan input PIN, lalu emit `join_room` lagi dengan `pin`. |
 | `room_pin_changed` | `{ hasPin: boolean }` | PIN room baru di-set/dihapus. FE update indikator gembok. |
+| `room_migrated` | `{ code: string }` | Decoy aktif (3x gagal PIN): pesan pindah ke room `code` baru. Anggota asli otomatis diarahkan ke sana. |
 | `message` | `Message` | Pesan baru broadcast ke semua anggota room. |
 | `participant_joined` | `{ nickname: string; participants: Participant[] }` | Ada yang bergabung. |
 | `participant_left` | `{ nickname: string; participants: Participant[] }` | Ada yang keluar/disconnect. |
@@ -137,7 +138,10 @@ Schema lengkap di [`be/prisma/schema.prisma`](be/prisma/schema.prisma).
 | id | uuid (PK) | |
 | code | text unik | shareable, 6 char |
 | pin | text nullable | PIN 4 digit (opsional). Kalau di-set, wajib dimasukkan tiap join. Default null. |
+| pin_fail_count | int | jumlah gagal PIN beruntun; reset saat sukses. Default 0. |
 | created_at | timestamptz | default now |
+
+**Decoy/honeypot (room ber-PIN):** gagal PIN **3x beruntun** → seluruh pesan **dipindahkan** ke room baru (kode baru, PIN sama), anggota online diarahkan ke room baru + kode dikirim ke email alert; room lama **dikosongkan & PIN dilepas** sehingga pendobrak "berhasil masuk" tapi tanpa history. Lihat event `room_migrated`.
 
 **participants**
 | kolom | tipe | catatan |

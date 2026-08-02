@@ -46,6 +46,21 @@ export async function findRoomByCode(code: string) {
   return prisma.room.findUnique({ where: { code } });
 }
 
+// Buat room baru dengan PIN tertentu (dipakai saat decoy migration).
+export async function createRoomWithPin(
+  pin: string | null
+): Promise<{ id: string; code: string }> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = generateRoomCode();
+    const existing = await prisma.room.findUnique({ where: { code } });
+    if (!existing) {
+      const room = await prisma.room.create({ data: { code, pin } });
+      return { id: room.id, code: room.code };
+    }
+  }
+  throw new Error("Gagal membuat kode room unik, coba lagi");
+}
+
 // Peserta aktif di sebuah room (untuk ditampilkan di UI).
 export async function getActiveParticipants(
   roomId: string

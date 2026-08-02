@@ -43,6 +43,7 @@ export type JoinedPayload = {
 
 export type PinRequiredPayload = { message?: string };
 export type RoomPinChangedPayload = { hasPin: boolean };
+export type RoomMigratedPayload = { code: string };
 
 export type ParticipantChangePayload = {
   nickname: string;

@@ -28,6 +28,14 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       NODE_ENV: production
       UPLOAD_DIR: /app/uploads
+      # Email alert (decoy). Isi nilainya di .env VPS (JANGAN commit).
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Anon Chat}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
     depends_on:
       postgres:
         condition: service_healthy

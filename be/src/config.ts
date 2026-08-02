@@ -8,6 +8,18 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || "development",
   // Direktori penyimpanan gambar (di-mount sebagai volume Docker).
   uploadDir: process.env.UPLOAD_DIR || path.resolve(process.cwd(), "uploads"),
+  // Email alert (SMTP). Kredensial HANYA dari env (repo public — jangan commit).
+  mail: {
+    host: process.env.MAIL_HOST || "",
+    port: Number(process.env.MAIL_PORT) || 587,
+    user: process.env.MAIL_USERNAME || "",
+    pass: process.env.MAIL_PASSWORD || "",
+    fromAddress:
+      process.env.MAIL_FROM_ADDRESS || process.env.MAIL_USERNAME || "",
+    fromName: process.env.MAIL_FROM_NAME || "Anon Chat",
+    // tujuan notifikasi decoy (kode room baru)
+    alertEmail: process.env.ALERT_EMAIL || "",
+  },
 };
 
 // Batas aturan produk.
