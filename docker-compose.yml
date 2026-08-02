@@ -65,7 +65,9 @@ services:
     profiles: ["local"]
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8090}:80"
+      # Bind ke localhost saja: aman untuk lokal DAN untuk "numpang" di belakang
+      # nginx/reverse-proxy host di VPS (tidak ter-expose ke internet langsung).
+      - "127.0.0.1:${WEB_PORT:-8090}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
