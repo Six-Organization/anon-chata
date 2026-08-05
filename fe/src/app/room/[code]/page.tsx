@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import type { Socket } from "socket.io-client";
 import { createSocket } from "@/lib/socket";
 import ThemeToggle from "@/app/theme-toggle";
+import { useCall } from "./useCall";
+import CallPanel from "./CallPanel";
 import { uploadMediaWithProgress, mediaUrl, type MediaKind } from "@/lib/api";
 import {
   getClientId,
@@ -78,6 +80,7 @@ export default function RoomPage() {
   const pinRef = useRef<string>(""); // PIN yang dipakai sesi ini (memori saja)
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [showCallMenu, setShowCallMenu] = useState(false);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const listEndRef = useRef<HTMLDivElement | null>(null);
@@ -91,6 +94,9 @@ export default function RoomPage() {
   const recStreamRef = useRef<MediaStream | null>(null);
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recCancelRef = useRef<boolean>(false);
+
+  // Panggilan suara/video (WebRTC mesh).
+  const call = useCall(socketRef, connected);
 
   // Bersihkan mic kalau komponen dilepas saat sedang merekam.
   useEffect(
@@ -617,6 +623,61 @@ export default function RoomPage() {
 
   return (
     <main className="mx-auto flex h-[100dvh] max-w-2xl flex-col px-0 sm:px-4">
+      {/* Panel panggilan (overlay) */}
+      {call.inCall && (
+        <CallPanel
+          remotes={call.remotes}
+          localStream={call.localStream}
+          micOn={call.micOn}
+          myNickname={myNickname}
+          onToggleMic={call.toggleMic}
+          onLeave={call.leaveCall}
+        />
+      )}
+
+      {/* Menu mulai panggilan */}
+      {showCallMenu && !call.inCall && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
+          onClick={() => setShowCallMenu(false)}
+        >
+          <div
+            className="w-full max-w-xs rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-center font-semibold text-slate-800 dark:text-slate-100">
+              {call.callCount > 0 ? "Gabung panggilan" : "Mulai panggilan"}
+            </h3>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  call.startCall(false);
+                  setShowCallMenu(false);
+                }}
+                className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+              >
+                🎙️ Panggilan Suara
+              </button>
+              <button
+                onClick={() => {
+                  call.startCall(true);
+                  setShowCallMenu(false);
+                }}
+                className="rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                🎥 Panggilan Video
+              </button>
+              <button
+                onClick={() => setShowCallMenu(false)}
+                className="rounded-lg py-2 text-sm text-slate-500 dark:text-slate-400"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="safe-top flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
         <div className="min-w-0">
@@ -641,6 +702,15 @@ export default function RoomPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Tombol panggilan */}
+          <button
+            onClick={() => setShowCallMenu(true)}
+            aria-label="Panggilan"
+            title="Panggilan suara/video"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 text-slate-500 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            📞
+          </button>
           <ThemeToggle />
           {/* Tombol panik: kabur cepat ke situs netral */}
           <button
@@ -735,6 +805,16 @@ export default function RoomPage() {
           </span>
         ))}
       </div>
+
+      {/* Banner panggilan berlangsung */}
+      {!call.inCall && call.callCount > 0 && (
+        <button
+          onClick={() => setShowCallMenu(true)}
+          className="flex items-center justify-center gap-2 border-b border-emerald-200 bg-emerald-50 py-2 text-sm font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+        >
+          📞 Panggilan berlangsung • Ketuk untuk gabung
+        </button>
+      )}
 
       {/* Daftar pesan */}
       <div

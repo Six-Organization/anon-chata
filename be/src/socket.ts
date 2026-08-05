@@ -31,9 +31,19 @@ interface SocketState {
   participantId?: string;
   nickname?: string;
   clientId?: string;
+  inCall?: boolean;
 }
 
 const roomChannel = (roomId: string) => `room:${roomId}`;
+
+// Peserta call per room (socketId). Untuk signaling WebRTC mesh.
+const callRooms = new Map<string, Set<string>>();
+
+function socketNickname(io: Server, sid: string): string {
+  const s = io.sockets.sockets.get(sid);
+  const d = s?.data as { nickname?: string } | undefined;
+  return d?.nickname ?? "";
+}
 
 export function registerSocketHandlers(io: Server): void {
   io.on("connection", (socket: Socket) => {
@@ -175,6 +185,12 @@ export function registerSocketHandlers(io: Server): void {
           nickname: participant.nickname,
           participants,
         });
+
+        // kalau ada call aktif di room ini, kabari peserta baru (utk banner "Gabung")
+        const callSet = callRooms.get(room.id);
+        if (callSet && callSet.size > 0) {
+          socket.emit("call_active", { count: callSet.size });
+        }
       } catch (err) {
         console.error("join_room error:", err);
         socket.emit("error", { message: "Terjadi kesalahan saat join room" });
@@ -380,13 +396,66 @@ export function registerSocketHandlers(io: Server): void {
       });
     });
 
+    // ---- WebRTC call signaling ----
+    const broadcastCallState = (roomId: string) => {
+      const set = callRooms.get(roomId);
+      io.to(roomChannel(roomId)).emit("call_active", { count: set ? set.size : 0 });
+    };
+
+    const leaveCall = () => {
+      if (!state.roomId || !state.inCall) return;
+      const roomId = state.roomId;
+      const set = callRooms.get(roomId);
+      if (set) {
+        set.delete(socket.id);
+        if (set.size === 0) callRooms.delete(roomId);
+      }
+      state.inCall = false;
+      io.to(roomChannel(roomId)).emit("call_peer_left", { peerId: socket.id });
+      broadcastCallState(roomId);
+    };
+
+    // masuk/mulai call
+    socket.on("call_join", () => {
+      if (!state.roomId) return;
+      let set = callRooms.get(state.roomId);
+      if (!set) {
+        set = new Set();
+        callRooms.set(state.roomId, set);
+      }
+      const peers = [...set]
+        .filter((id) => id !== socket.id)
+        .map((id) => ({ peerId: id, nickname: socketNickname(io, id) }));
+      set.add(socket.id);
+      state.inCall = true;
+      socket.emit("call_peers", { peers });
+      peers.forEach((p) =>
+        io.to(p.peerId).emit("call_peer_joined", {
+          peerId: socket.id,
+          nickname: state.nickname ?? "",
+        })
+      );
+      broadcastCallState(state.roomId);
+    });
+
+    socket.on("call_leave", () => leaveCall());
+
+    // relay SDP/ICE ke peer tertentu
+    socket.on("webrtc_signal", (payload: { to?: string; data?: unknown }) => {
+      const to = typeof payload?.to === "string" ? payload.to : "";
+      if (!to || !payload?.data) return;
+      io.to(to).emit("webrtc_signal", { from: socket.id, data: payload.data });
+    });
+
     // ---- client -> server: leave_room (eksplisit) ----
     socket.on("leave_room", async () => {
+      leaveCall();
       await handleLeave(io, socket, state);
     });
 
     // ---- disconnect ----
     socket.on("disconnect", async () => {
+      leaveCall();
       await handleLeave(io, socket, state);
     });
   });

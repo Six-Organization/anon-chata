@@ -108,6 +108,9 @@ Path default Socket.IO: `/socket.io`.
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
 | `react_message` | `{ messageId: string, emoji: string }` | Toggle reaksi emoji (1 reaksi per orang per pesan; emoji sama = lepas). |
+| `call_join` | _(kosong)_ | Masuk/mulai panggilan suara/video (WebRTC mesh) di room ini. |
+| `call_leave` | _(kosong)_ | Keluar dari panggilan. |
+| `webrtc_signal` | `{ to: string, data }` | Relay SDP/ICE ke peer `to` (socketId). |
 | `leave_room` | _(kosong)_ | Keluar room secara eksplisit. |
 
 ### Server → Client
@@ -124,6 +127,13 @@ Path default Socket.IO: `/socket.io`.
 | `participant_left` | `{ nickname: string; participants: Participant[] }` | Ada yang keluar/disconnect. |
 | `read_receipt` | `{ participantId: string; nickname: string; lastReadAt: string }` | Seorang peserta baru membaca; FE update status "dibaca". |
 | `message_reaction` | `{ messageId: string; reactions: { emoji; clientId; nickname }[] }` | Reaksi sebuah pesan berubah; FE update chip reaksi. |
+| `call_peers` | `{ peers: { peerId; nickname }[] }` | Saat kita masuk call: daftar peserta call yg sudah ada. |
+| `call_peer_joined` | `{ peerId; nickname }` | Peserta baru masuk call. |
+| `call_peer_left` | `{ peerId }` | Peserta keluar call → tutup peer connection. |
+| `call_active` | `{ count: number }` | Jumlah peserta call sekarang (utk banner "Gabung"). |
+| `webrtc_signal` | `{ from: string; data }` | Relay SDP/ICE dari peer. |
+
+**Panggilan (WebRTC):** topologi **mesh** (≤3 orang), signaling lewat event socket di atas, STUN publik untuk NAT traversal. Jaringan ketat (symmetric NAT) mungkin butuh **TURN server** (belum disediakan) — bisa ditambah nanti (mis. coturn).
 | `typing` | `{ nickname: string; isTyping: boolean }` | (opsional) broadcast ke anggota lain. |
 
 **Catatan flow:** FE boleh `POST /join` dulu untuk cek cepat (404/409), lalu emit `join_room`.
