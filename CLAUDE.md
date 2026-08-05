@@ -112,7 +112,7 @@ Path default Socket.IO: `/socket.io`.
 
 | Event | Payload | Keterangan |
 |-------|---------|-----------|
-| `joined` | `{ participantId: string; nickname: string; participants: Participant[]; messages: Message[]; hasPin: boolean }` | Sukses join; kirim state awal (+ status PIN room). |
+| `joined` | `{ participantId; nickname; participants: Participant[]; messages: Message[]; reads: Participant[]; hasPin: boolean }` | Sukses join; kirim state awal. `reads` = riwayat baca semua peserta (termasuk yang sudah keluar) untuk read receipt yang bertahan. |
 | `error` | `{ message: string }` | Gagal (mis. `"Room penuh"`, `"Room tidak ditemukan"`). |
 | `pin_required` | `{ message?: string }` | Room ber-PIN & PIN belum/tidak cocok. FE tampilkan input PIN, lalu emit `join_room` lagi dengan `pin`. |
 | `room_pin_changed` | `{ hasPin: boolean }` | PIN room baru di-set/dihapus. FE update indikator gembok. |

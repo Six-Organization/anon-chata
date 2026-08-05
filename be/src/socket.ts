@@ -15,6 +15,7 @@ import {
   findRoomByCode,
   createRoomWithPin,
   getActiveParticipants,
+  getRoomReads,
   getMessages,
   isRoomFull,
   toMessageDTO,
@@ -151,9 +152,10 @@ export function registerSocketHandlers(io: Server): void {
 
         socket.join(roomChannel(room.id));
 
-        const [participants, messages] = await Promise.all([
+        const [participants, messages, reads] = await Promise.all([
           getActiveParticipants(room.id),
           getMessages(room.id),
+          getRoomReads(room.id),
         ]);
 
         // state awal ke pemanggil
@@ -162,6 +164,7 @@ export function registerSocketHandlers(io: Server): void {
           nickname: participant.nickname,
           participants,
           messages,
+          reads,
           hasPin: !!room.pin,
         });
 

@@ -58,6 +58,7 @@ export default function RoomPage() {
   const [myParticipantId, setMyParticipantId] = useState<string>("");
   const [myClientId, setMyClientId] = useState<string>("");
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [reads, setReads] = useState<Participant[]>([]); // riwayat baca (persist walau keluar)
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -127,6 +128,7 @@ export default function RoomPage() {
       setMyNickname(p.nickname);
       setMyParticipantId(p.participantId);
       setParticipants(p.participants);
+      setReads(p.reads);
       setItems(p.messages.map((msg) => ({ kind: "chat", msg })));
       setHasPin(p.hasPin);
       setPinRequired(false);
@@ -154,6 +156,11 @@ export default function RoomPage() {
           pt.id === p.participantId ? { ...pt, lastReadAt: p.lastReadAt } : pt
         )
       );
+      // Simpan ke riwayat baca (bertahan walau pembacanya nanti keluar).
+      setReads((prev) => [
+        ...prev.filter((r) => r.id !== p.participantId),
+        { id: p.participantId, nickname: p.nickname, lastReadAt: p.lastReadAt },
+      ]);
     });
 
     socket.on("pin_required", (p: PinRequiredPayload) => {
@@ -266,9 +273,10 @@ export default function RoomPage() {
     return msg.nickname === myNickname;
   }
 
-  // Siapa saja yang sudah membaca pesan `msg` (kecuali pengirim & diri sendiri).
+  // Siapa saja yang sudah membaca pesan `msg` (dari riwayat baca, bukan cuma yg
+  // online — kecuali pengirim & diri sendiri).
   function readersFor(msg: Message): Participant[] {
-    return participants.filter(
+    return reads.filter(
       (p) =>
         p.id !== myParticipantId &&
         p.nickname !== msg.nickname &&

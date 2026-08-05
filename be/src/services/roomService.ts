@@ -82,6 +82,21 @@ export async function findParticipantByClient(roomId: string, clientId: string) 
   return prisma.participant.findFirst({ where: { roomId, clientId } });
 }
 
+// Riwayat baca SEMUA peserta (aktif maupun tidak) yang punya last_read_at.
+// Dipakai untuk read receipt yang tetap bertahan walau pembacanya keluar.
+export async function getRoomReads(roomId: string): Promise<ParticipantDTO[]> {
+  const rows = await prisma.participant.findMany({
+    where: { roomId, lastReadAt: { not: null } },
+    orderBy: { joinedAt: "asc" },
+    select: { id: true, nickname: true, lastReadAt: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    nickname: r.nickname,
+    lastReadAt: r.lastReadAt ? r.lastReadAt.toISOString() : null,
+  }));
+}
+
 export async function countActiveParticipants(roomId: string): Promise<number> {
   return prisma.participant.count({
     where: { roomId, isActive: true },

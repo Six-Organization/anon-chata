@@ -38,6 +38,7 @@ export type JoinedPayload = {
   nickname: string;
   participants: Participant[];
   messages: Message[];
+  reads: Participant[]; // riwayat baca semua peserta (termasuk yg sudah keluar)
   hasPin: boolean;
 };
 
