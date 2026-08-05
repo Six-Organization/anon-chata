@@ -7,6 +7,7 @@ import { createSocket } from "@/lib/socket";
 import ThemeToggle from "@/app/theme-toggle";
 import { useCall } from "./useCall";
 import CallPanel from "./CallPanel";
+import { CHAT_BGS, getChatBgId, setChatBgId, bgStyleOf } from "@/lib/chatBg";
 import { uploadMediaWithProgress, mediaUrl, type MediaKind } from "@/lib/api";
 import {
   getClientId,
@@ -81,6 +82,13 @@ export default function RoomPage() {
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [showCallMenu, setShowCallMenu] = useState(false);
+  const [chatBg, setChatBg] = useState("none");
+
+  useEffect(() => setChatBg(getChatBgId()), []);
+  function chooseBg(id: string) {
+    setChatBg(id);
+    setChatBgId(id);
+  }
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const listEndRef = useRef<HTMLDivElement | null>(null);
@@ -791,6 +799,29 @@ export default function RoomPage() {
               Tutup
             </button>
           </div>
+
+          {/* Latar chat (wallpaper) */}
+          <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+              Latar chat
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {CHAT_BGS.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => chooseBg(b.id)}
+                  title={b.label}
+                  aria-label={`Latar ${b.label}`}
+                  style={b.style}
+                  className={`h-10 w-10 rounded-lg bg-slate-100 ring-2 transition dark:bg-slate-700 ${
+                    chatBg === b.id
+                      ? "ring-brand"
+                      : "ring-transparent hover:ring-slate-300 dark:hover:ring-slate-500"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -820,6 +851,7 @@ export default function RoomPage() {
       <div
         ref={listRef}
         onScroll={onListScroll}
+        style={bgStyleOf(chatBg)}
         className="chat-scroll flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4 dark:bg-slate-900"
       >
         {items.map((it) =>
