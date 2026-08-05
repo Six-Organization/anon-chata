@@ -7,8 +7,18 @@ import { createSocket } from "@/lib/socket";
 import ThemeToggle from "@/app/theme-toggle";
 import { useCall } from "./useCall";
 import CallPanel from "./CallPanel";
-import { CHAT_BGS, getChatBgId, setChatBgId, bgStyleOf } from "@/lib/chatBg";
-import { uploadMediaWithProgress, mediaUrl, type MediaKind } from "@/lib/api";
+import {
+  CHAT_BGS,
+  bgStyleOf,
+  isImageWallpaper,
+  fileToResizedBlob,
+} from "@/lib/chatBg";
+import {
+  uploadMediaWithProgress,
+  uploadWallpaper,
+  mediaUrl,
+  type MediaKind,
+} from "@/lib/api";
 import {
   getClientId,
   getSavedNickname,
@@ -31,6 +41,7 @@ import type {
   RoomPinChangedPayload,
   RoomMigratedPayload,
   MessageReactionPayload,
+  RoomWallpaperChangedPayload,
 } from "@/lib/types";
 
 // Media yang sedang di-upload di background (bubble sementara sendiri).
@@ -82,13 +93,40 @@ export default function RoomPage() {
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [showCallMenu, setShowCallMenu] = useState(false);
-  const [chatBg, setChatBg] = useState("none");
+  // Wallpaper = setelan ROOM (dibagikan ke semua anggota): preset id / URL / null.
+  const [roomWallpaper, setRoomWallpaper] = useState<string | null>(null);
+  const [wpUploading, setWpUploading] = useState(false);
+  const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => setChatBg(getChatBgId()), []);
-  function chooseBg(id: string) {
-    setChatBg(id);
-    setChatBgId(id);
+  function chooseWallpaper(value: string | null) {
+    socketRef.current?.emit("set_room_wallpaper", { wallpaper: value });
+    setRoomWallpaper(value === "none" ? null : value); // optimis
   }
+  async function handleWallpaperFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    setWpUploading(true);
+    try {
+      const blob = await fileToResizedBlob(file);
+      const { url } = await uploadWallpaper(code, blob);
+      chooseWallpaper(url);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Gagal upload wallpaper");
+    } finally {
+      setWpUploading(false);
+    }
+  }
+
+  const activeWp = roomWallpaper ?? "none";
+  const appliedBgStyle = isImageWallpaper(roomWallpaper)
+    ? {
+        backgroundImage: `url(${mediaUrl(roomWallpaper as string)})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+      }
+    : bgStyleOf(activeWp);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const listEndRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +185,7 @@ export default function RoomPage() {
       setReads(p.reads);
       setItems(p.messages.map((msg) => ({ kind: "chat", msg })));
       setHasPin(p.hasPin);
+      setRoomWallpaper(p.wallpaper);
       setPinRequired(false);
       setPinError(null);
       saveNickname(p.nickname); // pertahankan nama utk sesi berikutnya
@@ -194,6 +233,11 @@ export default function RoomPage() {
     socket.on("room_migrated", (p: RoomMigratedPayload) => {
       if (pinRef.current) carryPin(p.code, pinRef.current);
       router.replace(`/room/${p.code}`);
+    });
+
+    // Wallpaper room diubah anggota lain.
+    socket.on("room_wallpaper_changed", (p: RoomWallpaperChangedPayload) => {
+      setRoomWallpaper(p.wallpaper);
     });
 
     // Reaksi sebuah pesan berubah -> update chip.
@@ -800,26 +844,74 @@ export default function RoomPage() {
             </button>
           </div>
 
-          {/* Latar chat (wallpaper) */}
+          {/* Latar chat (wallpaper) — berlaku untuk semua anggota room */}
           <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
             <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
-              Latar chat
+              Latar chat{" "}
+              <span className="font-normal text-slate-400">
+                (untuk semua anggota)
+              </span>
             </p>
             <div className="flex flex-wrap gap-2">
               {CHAT_BGS.map((b) => (
                 <button
                   key={b.id}
-                  onClick={() => chooseBg(b.id)}
+                  onClick={() => chooseWallpaper(b.id)}
                   title={b.label}
                   aria-label={`Latar ${b.label}`}
                   style={b.style}
                   className={`h-10 w-10 rounded-lg bg-slate-100 ring-2 transition dark:bg-slate-700 ${
-                    chatBg === b.id
+                    !isImageWallpaper(roomWallpaper) && activeWp === b.id
                       ? "ring-brand"
                       : "ring-transparent hover:ring-slate-300 dark:hover:ring-slate-500"
                   }`}
                 />
               ))}
+
+              {/* wallpaper gambar yang sedang aktif */}
+              {isImageWallpaper(roomWallpaper) && (
+                <div className="relative">
+                  <button
+                    title="Wallpaper gambar"
+                    aria-label="Wallpaper gambar aktif"
+                    style={{
+                      backgroundImage: `url(${mediaUrl(roomWallpaper as string)})`,
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
+                    }}
+                    className="h-10 w-10 rounded-lg ring-2 ring-brand"
+                  />
+                  <button
+                    onClick={() => chooseWallpaper(null)}
+                    aria-label="Hapus wallpaper"
+                    className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-red-500 text-[10px] text-white"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
+              {/* unggah wallpaper gambar */}
+              <input
+                ref={wallpaperInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleWallpaperFile}
+              />
+              <button
+                onClick={() => wallpaperInputRef.current?.click()}
+                disabled={wpUploading}
+                title="Unggah gambar wallpaper"
+                aria-label="Unggah wallpaper"
+                className="grid h-10 w-10 place-items-center rounded-lg border-2 border-dashed border-slate-300 text-lg text-slate-400 transition hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-600"
+              >
+                {wpUploading ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand" />
+                ) : (
+                  "+"
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -851,7 +943,7 @@ export default function RoomPage() {
       <div
         ref={listRef}
         onScroll={onListScroll}
-        style={bgStyleOf(chatBg)}
+        style={appliedBgStyle}
         className="chat-scroll flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4 dark:bg-slate-900"
       >
         {items.map((it) =>

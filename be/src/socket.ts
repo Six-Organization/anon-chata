@@ -6,11 +6,19 @@ import {
   normalizeMessage,
   normalizeCaption,
 } from "./utils/validation";
-import { resolveUploadedMedia } from "./upload";
+import { resolveUploadedMedia, resolveWallpaperUrl } from "./upload";
 import { RULES } from "./config";
 
 // Jenis media yang valid untuk mediaType di send_message.
 const MEDIA_TYPES = new Set(["image", "audio", "video"]);
+// Preset wallpaper yang diizinkan (selain URL gambar).
+const WALLPAPER_PRESETS = new Set([
+  "dots",
+  "grid",
+  "diagonal",
+  "leaves",
+  "aurora",
+]);
 import {
   findRoomByCode,
   createRoomWithPin,
@@ -178,6 +186,7 @@ export function registerSocketHandlers(io: Server): void {
           messages,
           reads,
           hasPin: !!room.pin,
+          wallpaper: room.wallpaper ?? null,
         });
 
         // beri tahu yang lain
@@ -386,6 +395,43 @@ export function registerSocketHandlers(io: Server): void {
         socket.emit("error", { message: "Gagal mengubah PIN" });
       }
     });
+
+    // ---- client -> server: set_room_wallpaper (latar chat bersama) ----
+    socket.on(
+      "set_room_wallpaper",
+      async (payload: { wallpaper?: string | null }) => {
+        try {
+          if (!state.roomId) {
+            socket.emit("error", { message: "Belum join room" });
+            return;
+          }
+          let wallpaper: string | null = null;
+          const raw = payload?.wallpaper;
+          if (typeof raw === "string" && raw && raw !== "none") {
+            if (WALLPAPER_PRESETS.has(raw)) {
+              wallpaper = raw;
+            } else {
+              const url = resolveWallpaperUrl(raw);
+              if (!url) {
+                socket.emit("error", { message: "Wallpaper tidak valid" });
+                return;
+              }
+              wallpaper = url;
+            }
+          }
+          await prisma.room.update({
+            where: { id: state.roomId },
+            data: { wallpaper },
+          });
+          io.to(roomChannel(state.roomId)).emit("room_wallpaper_changed", {
+            wallpaper,
+          });
+        } catch (err) {
+          console.error("set_room_wallpaper error:", err);
+          socket.emit("error", { message: "Gagal mengubah wallpaper" });
+        }
+      }
+    );
 
     // ---- client -> server: typing (opsional) ----
     socket.on("typing", (payload: { isTyping?: boolean }) => {

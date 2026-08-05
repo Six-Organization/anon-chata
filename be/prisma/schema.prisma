@@ -17,6 +17,7 @@ model Room {
   code         String   @unique
   pin          String? // PIN 4 digit opsional (gate masuk room)
   pinFailCount Int      @default(0) @map("pin_fail_count") // gagal PIN beruntun
+  wallpaper    String? // latar chat: preset id ("leaves") atau URL gambar
   createdAt    DateTime @default(now()) @map("created_at")
 
   participants Participant[]

@@ -61,6 +61,21 @@ export async function getMessages(code: string): Promise<Message[]> {
 
 export type MediaKind = "image" | "audio" | "video";
 
+// Upload wallpaper room (persisten). Balikan { url }.
+export async function uploadWallpaper(
+  code: string,
+  blob: Blob
+): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append("file", blob, "wallpaper.jpg");
+  const res = await fetch(
+    apiUrl(`/rooms/${encodeURIComponent(code)}/wallpaper`),
+    { method: "POST", body: form }
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 // Upload media dengan progress (XHR) — dipakai untuk kirim di background.
 export function uploadMediaWithProgress(
   code: string,

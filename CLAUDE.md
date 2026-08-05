@@ -71,6 +71,10 @@ Upload satu media (multipart/form-data, field `file`) — gambar / audio / video
 Media disajikan statis di `GET /api/uploads/<file>`. **Auto-hapus permanen 24 jam** setelah dikirim
 (file + row pesan media dihapus oleh cleanup job di BE) agar tidak memenuhi disk.
 
+### `POST /api/rooms/:code/upload/wallpaper` → `POST /api/rooms/:code/wallpaper`
+Upload gambar wallpaper room (multipart, field `file`). Disimpan **permanen** di `uploads/wallpapers/`
+(TIDAK kena auto-hapus 24 jam). Klien me-resize dulu. **201** → `{ "url": "/api/uploads/wallpapers/<file>" }`.
+
 ### Tipe bersama
 ```ts
 type Participant = {
@@ -104,6 +108,7 @@ Path default Socket.IO: `/socket.io`.
 |-------|---------|-----------|
 | `join_room` | `{ code, nickname?, clientId?, pin? }` | Gabung room. Server enforce max 3. `clientId` = identitas perangkat stabil (dari `localStorage`): kalau sudah pernah join room ini, kursinya **dipakai ulang** (bukan kursi baru) & nickname dipertahankan. `pin` = wajib kalau room ber-PIN. |
 | `set_room_pin` | `{ pin: string \| null }` | Set/ganti/hapus PIN room (harus sudah join). `pin` 4 digit angka, atau `null`/kosong untuk hapus. |
+| `set_room_wallpaper` | `{ wallpaper: string \| null }` | Set latar chat room (dibagi semua anggota). Nilai: preset id, URL wallpaper (`/api/uploads/wallpapers/..`), atau `null`/`"none"` untuk polos. |
 | `send_message` | `{ content?, imageUrl?, mediaType?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType` (`image`/`audio`/`video`) + `content` opsional (caption). `replyToId` = balas pesan lain. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
@@ -117,11 +122,12 @@ Path default Socket.IO: `/socket.io`.
 
 | Event | Payload | Keterangan |
 |-------|---------|-----------|
-| `joined` | `{ participantId; nickname; participants: Participant[]; messages: Message[]; reads: Participant[]; hasPin: boolean }` | Sukses join; kirim state awal. `reads` = riwayat baca semua peserta (termasuk yang sudah keluar) untuk read receipt yang bertahan. |
+| `joined` | `{ participantId; nickname; participants: Participant[]; messages: Message[]; reads: Participant[]; hasPin: boolean; wallpaper: string \| null }` | Sukses join; kirim state awal (+ latar chat room). `reads` = riwayat baca semua peserta (termasuk yang sudah keluar) untuk read receipt yang bertahan. |
 | `error` | `{ message: string }` | Gagal (mis. `"Room penuh"`, `"Room tidak ditemukan"`). |
 | `pin_required` | `{ message?: string }` | Room ber-PIN & PIN belum/tidak cocok. FE tampilkan input PIN, lalu emit `join_room` lagi dengan `pin`. |
 | `room_pin_changed` | `{ hasPin: boolean }` | PIN room baru di-set/dihapus. FE update indikator gembok. |
 | `room_migrated` | `{ code: string }` | Decoy aktif (3x gagal PIN): pesan pindah ke room `code` baru. Anggota asli otomatis diarahkan ke sana. |
+| `room_wallpaper_changed` | `{ wallpaper: string \| null }` | Latar chat room diubah; FE update tampilan untuk semua. |
 | `message` | `Message` | Pesan baru broadcast ke semua anggota room. |
 | `participant_joined` | `{ nickname: string; participants: Participant[] }` | Ada yang bergabung. |
 | `participant_left` | `{ nickname: string; participants: Participant[] }` | Ada yang keluar/disconnect. |
@@ -152,6 +158,7 @@ Schema lengkap di [`be/prisma/schema.prisma`](be/prisma/schema.prisma).
 | code | text unik | shareable, 6 char |
 | pin | text nullable | PIN 4 digit (opsional). Kalau di-set, wajib dimasukkan tiap join. Default null. |
 | pin_fail_count | int | jumlah gagal PIN beruntun; reset saat sukses. Default 0. |
+| wallpaper | text nullable | latar chat room (dibagi semua anggota): preset id (`leaves`) atau URL gambar. |
 | created_at | timestamptz | default now |
 
 **Decoy/honeypot (room ber-PIN):** gagal PIN **3x beruntun** → seluruh pesan **dipindahkan** ke room baru (kode baru, PIN sama), anggota online diarahkan ke room baru + kode dikirim ke email alert; room lama **dikosongkan & PIN dilepas** sehingga pendobrak "berhasil masuk" tapi tanpa history. Lihat event `room_migrated`.

@@ -54,15 +54,45 @@ export const CHAT_BGS: ChatBg[] = [
   },
 ];
 
-const KEY = "anonchat_bg";
-
-export function getChatBgId(): string {
-  if (typeof window === "undefined") return "none";
-  return localStorage.getItem(KEY) || "none";
-}
-export function setChatBgId(id: string): void {
-  if (typeof window !== "undefined") localStorage.setItem(KEY, id);
-}
+// Wallpaper sekarang setelan ROOM (disimpan di server & dibagikan). Nilai =
+// id preset di atas ATAU URL gambar (/api/uploads/wallpapers/...).
 export function bgStyleOf(id: string): CSSProperties {
   return (CHAT_BGS.find((b) => b.id === id) || CHAT_BGS[0]).style;
+}
+export function isImageWallpaper(v: string | null | undefined): boolean {
+  return typeof v === "string" && v.startsWith("/api/uploads/");
+}
+
+// Resize + kompres gambar jadi Blob JPEG kecil (sebelum di-upload ke server).
+export function fileToResizedBlob(
+  file: File,
+  maxDim = 1600,
+  quality = 0.78
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("no canvas"));
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob gagal"))),
+        "image/jpeg",
+        quality
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("gagal baca gambar"));
+    };
+    img.src = url;
+  });
 }

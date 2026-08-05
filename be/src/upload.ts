@@ -25,6 +25,37 @@ export const uploadMediaMiddleware = multer({
   },
 });
 
+// ---- Wallpaper room (persisten; TIDAK kena auto-hapus 24 jam) ----
+// Disimpan di subfolder uploads/wallpapers/ yang tak dipindai cleanup.
+const wallpaperDir = path.join(config.uploadDir, "wallpapers");
+fs.mkdirSync(wallpaperDir, { recursive: true });
+
+const wallpaperStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, wallpaperDir),
+  filename: (_req, file, cb) =>
+    cb(null, `${crypto.randomUUID()}.${extFromMime(file.mimetype)}`),
+});
+
+export const uploadWallpaperMiddleware = multer({
+  storage: wallpaperStorage,
+  limits: { fileSize: 4 * 1024 * 1024, files: 1 }, // 4 MB (sudah di-resize klien)
+  fileFilter: (_req, file, cb) => {
+    if (RULES.ALLOWED_IMAGE_MIME[file.mimetype]) cb(null, true);
+    else cb(new Error("INVALID_TYPE"));
+  },
+});
+
+const WALLPAPER_URL_RE =
+  /^\/api\/uploads\/wallpapers\/([A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp))$/;
+
+export function resolveWallpaperUrl(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  const m = WALLPAPER_URL_RE.exec(url);
+  if (!m) return null;
+  const full = path.join(wallpaperDir, path.basename(m[1]));
+  return fs.existsSync(full) ? url : null;
+}
+
 // Ekstensi media yang valid untuk validasi URL saat send_message.
 const MEDIA_EXT = "jpg|jpeg|png|gif|webp|webm|m4a|mp3|ogg|aac|mp4|mov";
 const URL_RE = new RegExp(`^/api/uploads/([A-Za-z0-9_-]+\\.(?:${MEDIA_EXT}))$`);

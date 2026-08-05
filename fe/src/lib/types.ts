@@ -45,11 +45,13 @@ export type JoinedPayload = {
   messages: Message[];
   reads: Participant[]; // riwayat baca semua peserta (termasuk yg sudah keluar)
   hasPin: boolean;
+  wallpaper: string | null; // latar chat room (preset id atau URL gambar)
 };
 
 export type PinRequiredPayload = { message?: string };
 export type RoomPinChangedPayload = { hasPin: boolean };
 export type RoomMigratedPayload = { code: string };
+export type RoomWallpaperChangedPayload = { wallpaper: string | null };
 
 export type ParticipantChangePayload = {
   nickname: string;
