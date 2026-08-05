@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Socket } from "socket.io-client";
 import { createSocket } from "@/lib/socket";
+import ThemeToggle from "@/app/theme-toggle";
 import { uploadMediaWithProgress, mediaUrl, type MediaKind } from "@/lib/api";
 import {
   getClientId,
@@ -26,6 +27,7 @@ import type {
   PinRequiredPayload,
   RoomPinChangedPayload,
   RoomMigratedPayload,
+  MessageReactionPayload,
 } from "@/lib/types";
 
 // Media yang sedang di-upload di background (bubble sementara sendiri).
@@ -180,10 +182,15 @@ export default function RoomPage() {
       router.replace(`/room/${p.code}`);
     });
 
-    // Panik: semua chat dihapus -> kosongkan tampilan.
-    socket.on("room_wiped", () => {
-      setItems([]);
-      addSystem("🧹 Semua chat dihapus");
+    // Reaksi sebuah pesan berubah -> update chip.
+    socket.on("message_reaction", (p: MessageReactionPayload) => {
+      setItems((prev) =>
+        prev.map((it) =>
+          it.kind === "chat" && it.msg.id === p.messageId
+            ? { ...it, msg: { ...it.msg, reactions: p.reactions } }
+            : it
+        )
+      );
     });
 
     socket.on("participant_joined", (p: ParticipantChangePayload) => {
@@ -271,6 +278,10 @@ export default function RoomPage() {
       return;
     }
     socketRef.current?.emit("mark_read");
+  }
+
+  function reactToMessage(messageId: string, emoji: string) {
+    socketRef.current?.emit("react_message", { messageId, emoji });
   }
 
   // Pesan ini milik saya? Utamakan clientId (stabil lintas sesi), fallback nickname.
@@ -495,20 +506,6 @@ export default function RoomPage() {
     }
   }
 
-  // Panik: hapus semua chat room untuk semua orang (dengan konfirmasi).
-  function wipeRoom() {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "Hapus SEMUA chat di room ini untuk semua orang? Tidak bisa dibatalkan."
-      )
-    ) {
-      return;
-    }
-    socketRef.current?.emit("wipe_room");
-    setShowPinPanel(false);
-  }
-
   // Submit PIN untuk masuk room ber-PIN.
   function submitPin() {
     const pin = pinInput.trim();
@@ -578,10 +575,12 @@ export default function RoomPage() {
   if (pinRequired) {
     return (
       <main className="safe-x mx-auto flex min-h-[100dvh] max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
-        <div className="w-full rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="w-full rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
           <div className="mb-2 text-4xl">🔒</div>
-          <h2 className="text-lg font-semibold text-slate-800">Room terkunci</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+            Room terkunci
+          </h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Masukkan PIN 4 digit untuk masuk.
           </p>
           <input
@@ -619,13 +618,13 @@ export default function RoomPage() {
   return (
     <main className="mx-auto flex h-[100dvh] max-w-2xl flex-col px-0 sm:px-4">
       {/* Header */}
-      <header className="safe-top flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
+      <header className="safe-top flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <button
               onClick={copyCode}
               title="Salin kode"
-              className="rounded-md bg-slate-100 px-2 py-1 font-mono text-sm font-bold tracking-widest text-slate-800 hover:bg-slate-200"
+              className="rounded-md bg-slate-100 px-2 py-1 font-mono text-sm font-bold tracking-widest text-slate-800 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
             >
               {code}
             </button>
@@ -642,6 +641,7 @@ export default function RoomPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <ThemeToggle />
           {/* Tombol panik: kabur cepat ke situs netral */}
           <button
             onClick={panicExit}
@@ -672,7 +672,7 @@ export default function RoomPage() {
           </button>
           <button
             onClick={leaveRoom}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
           >
             Keluar
           </button>
@@ -681,8 +681,8 @@ export default function RoomPage() {
 
       {/* Panel set PIN */}
       {showPinPanel && (
-        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="mb-1.5 text-xs font-medium text-slate-600">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+          <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
             {hasPin
               ? "Room terkunci PIN. Ganti atau hapus di bawah."
               : "Kunci room dengan PIN 4 digit (wajib diisi tiap masuk)."}
@@ -721,21 +721,11 @@ export default function RoomPage() {
               Tutup
             </button>
           </div>
-
-          {/* Panik: hapus semua chat */}
-          <div className="mt-3 border-t border-slate-200 pt-3">
-            <button
-              onClick={wipeRoom}
-              className="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-            >
-              🧨 Hapus semua chat (semua orang)
-            </button>
-          </div>
         </div>
       )}
 
       {/* Peserta */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-100 bg-white px-4 py-2">
+      <div className="flex flex-wrap gap-2 border-b border-slate-100 bg-white px-4 py-2 dark:border-slate-700/60 dark:bg-slate-800">
         {participants.map((p) => (
           <span
             key={p.id}
@@ -750,12 +740,12 @@ export default function RoomPage() {
       <div
         ref={listRef}
         onScroll={onListScroll}
-        className="chat-scroll flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4"
+        className="chat-scroll flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4 dark:bg-slate-900"
       >
         {items.map((it) =>
           it.kind === "system" ? (
             <div key={it.id} className="text-center">
-              <span className="rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-500">
+              <span className="rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                 {it.text}
               </span>
             </div>
@@ -773,8 +763,10 @@ export default function RoomPage() {
               mine={isMine(it.msg)}
               readers={readersFor(it.msg)}
               highlighted={highlightId === it.msg.id}
+              myClientId={myClientId}
               onReply={() => setReplyingTo(it.msg)}
               onJumpTo={scrollToMessage}
+              onReact={(emoji) => reactToMessage(it.msg.id, emoji)}
             />
           )
         )}
@@ -788,7 +780,7 @@ export default function RoomPage() {
       </div>
 
       {/* Input */}
-      <div className="safe-bottom border-t border-slate-200 bg-white px-4 py-3">
+      <div className="safe-bottom border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
         {notice && (
           <p className="mb-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
             {notice}
@@ -853,7 +845,7 @@ export default function RoomPage() {
               disabled={!connected}
               aria-label="Kirim gambar atau video"
               title="Gambar / video"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -869,7 +861,7 @@ export default function RoomPage() {
               disabled={!connected}
               aria-label="Rekam pesan suara"
               title="Pesan suara"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="9" y="2" width="6" height="12" rx="3" />
@@ -889,7 +881,7 @@ export default function RoomPage() {
               enterKeyHint="send"
               autoComplete="off"
               aria-label="Tulis pesan"
-              className="w-full rounded-full border border-slate-300 px-4 py-2 text-base outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 disabled:bg-slate-100"
+              className="w-full rounded-full border border-slate-300 px-4 py-2 text-base outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder:text-slate-400 dark:disabled:bg-slate-800"
             />
             <button
               onClick={sendMessage}
@@ -987,27 +979,43 @@ function PendingBubble({
   );
 }
 
+const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
 function MessageBubble({
   msg,
   mine,
   readers,
   highlighted,
+  myClientId,
   onReply,
   onJumpTo,
+  onReact,
 }: {
   msg: Message;
   mine: boolean;
   readers: Participant[];
   highlighted: boolean;
+  myClientId: string;
   onReply: () => void;
   onJumpTo: (id: string) => void;
+  onReact: (emoji: string) => void;
 }) {
+  const [showPicker, setShowPicker] = useState(false);
   const time = new Date(msg.createdAt).toLocaleTimeString("id-ID", {
     hour: "2-digit",
     minute: "2-digit",
   });
   const src = msg.imageUrl ? mediaUrl(msg.imageUrl) : null;
   const expired = msg.type !== "text" && !msg.imageUrl;
+
+  // Kelompokkan reaksi per emoji.
+  const grouped = new Map<string, { count: number; mine: boolean }>();
+  for (const r of msg.reactions) {
+    const g = grouped.get(r.emoji) || { count: 0, mine: false };
+    g.count += 1;
+    if (r.clientId === myClientId) g.mine = true;
+    grouped.set(r.emoji, g);
+  }
 
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -1016,7 +1024,7 @@ function MessageBubble({
         className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm transition-shadow ${
           mine
             ? "rounded-br-sm bg-brand text-white"
-            : "rounded-bl-sm bg-white text-slate-800 ring-1 ring-slate-200"
+            : "rounded-bl-sm bg-white text-slate-800 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600"
         } ${highlighted ? "ring-2 ring-amber-400" : ""}`}
       >
         {!mine && (
@@ -1089,13 +1097,86 @@ function MessageBubble({
         {msg.content && (
           <p className="mt-1 whitespace-pre-wrap break-words">{msg.content}</p>
         )}
-        <div className="mt-1 flex items-center justify-end gap-1.5">
+
+        {/* Chip reaksi */}
+        {grouped.size > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {[...grouped.entries()].map(([emoji, g]) => (
+              <button
+                key={emoji}
+                onClick={() => onReact(emoji)}
+                className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs ring-1 transition ${
+                  g.mine
+                    ? mine
+                      ? "bg-white/25 ring-white/70"
+                      : "bg-brand/15 ring-brand/50"
+                    : mine
+                    ? "bg-white/10 ring-white/25"
+                    : "bg-slate-100 ring-slate-200"
+                }`}
+              >
+                <span>{emoji}</span>
+                <span className={mine ? "text-white/90" : "text-slate-600"}>
+                  {g.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Palet emoji */}
+        {showPicker && (
+          <div
+            className={`mt-1 flex gap-1.5 rounded-full px-2 py-1 ${
+              mine ? "bg-white/15" : "bg-slate-100"
+            }`}
+          >
+            {REACT_EMOJIS.map((e) => (
+              <button
+                key={e}
+                onClick={() => {
+                  onReact(e);
+                  setShowPicker(false);
+                }}
+                className="text-lg leading-none transition hover:scale-125"
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-1 flex items-center gap-1.5">
+          {/* Tombol reaksi */}
+          <button
+            onClick={() => setShowPicker((v) => !v)}
+            aria-label="Reaksi"
+            title="Reaksi"
+            className={`opacity-70 transition hover:opacity-100 ${
+              mine ? "text-white/80" : "text-slate-400 hover:text-brand"
+            }`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+              <line x1="9" y1="9" x2="9.01" y2="9" />
+              <line x1="15" y1="9" x2="15.01" y2="9" />
+            </svg>
+          </button>
           {/* Tombol balas */}
           <button
             onClick={onReply}
             aria-label="Balas"
             title="Balas"
-            className={`mr-auto opacity-70 transition hover:opacity-100 ${
+            className={`opacity-70 transition hover:opacity-100 ${
               mine ? "text-white/80" : "text-slate-400 hover:text-brand"
             }`}
           >
@@ -1113,6 +1194,7 @@ function MessageBubble({
             </svg>
           </button>
 
+          <span className="ml-auto" />
           {readers.length > 0 && (
             <span
               className="flex items-center gap-0.5"

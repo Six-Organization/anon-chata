@@ -21,6 +21,8 @@ export type ReplyPreview = {
   type: string;
 } | null;
 
+export type Reaction = { emoji: string; clientId: string; nickname: string };
+
 export type Message = {
   id: string;
   nickname: string;
@@ -29,8 +31,11 @@ export type Message = {
   type: MediaType;
   imageUrl: string | null; // URL media (image/audio/video); null jika kadaluarsa
   replyTo: ReplyPreview;
+  reactions: Reaction[];
   createdAt: string; // ISO
 };
+
+export type MessageReactionPayload = { messageId: string; reactions: Reaction[] };
 
 // Payload event socket server -> client
 export type JoinedPayload = {

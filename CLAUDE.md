@@ -86,6 +86,7 @@ type Message = {
   type: "text" | "image" | "audio" | "video";
   imageUrl: string | null;         // URL media (image/audio/video); null jika kadaluarsa
   replyTo: { id: string; nickname: string; content: string; type: string } | null;
+  reactions: { emoji: string; clientId: string; nickname: string }[]; // reaksi emoji
   createdAt: string /* ISO */;
 };
 ```
@@ -106,7 +107,7 @@ Path default Socket.IO: `/socket.io`.
 | `send_message` | `{ content?, imageUrl?, mediaType?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType` (`image`/`audio`/`video`) + `content` opsional (caption). `replyToId` = balas pesan lain. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
-| `wipe_room` | _(kosong)_ | Panik: hapus **semua** pesan + file media room (harus sudah join). |
+| `react_message` | `{ messageId: string, emoji: string }` | Toggle reaksi emoji (1 reaksi per orang per pesan; emoji sama = lepas). |
 | `leave_room` | _(kosong)_ | Keluar room secara eksplisit. |
 
 ### Server → Client
@@ -118,11 +119,11 @@ Path default Socket.IO: `/socket.io`.
 | `pin_required` | `{ message?: string }` | Room ber-PIN & PIN belum/tidak cocok. FE tampilkan input PIN, lalu emit `join_room` lagi dengan `pin`. |
 | `room_pin_changed` | `{ hasPin: boolean }` | PIN room baru di-set/dihapus. FE update indikator gembok. |
 | `room_migrated` | `{ code: string }` | Decoy aktif (3x gagal PIN): pesan pindah ke room `code` baru. Anggota asli otomatis diarahkan ke sana. |
-| `room_wiped` | _(kosong)_ | Semua pesan room dihapus (panik). FE kosongkan tampilan chat. |
 | `message` | `Message` | Pesan baru broadcast ke semua anggota room. |
 | `participant_joined` | `{ nickname: string; participants: Participant[] }` | Ada yang bergabung. |
 | `participant_left` | `{ nickname: string; participants: Participant[] }` | Ada yang keluar/disconnect. |
 | `read_receipt` | `{ participantId: string; nickname: string; lastReadAt: string }` | Seorang peserta baru membaca; FE update status "dibaca". |
+| `message_reaction` | `{ messageId: string; reactions: { emoji; clientId; nickname }[] }` | Reaksi sebuah pesan berubah; FE update chip reaksi. |
 | `typing` | `{ nickname: string; isTyping: boolean }` | (opsional) broadcast ke anggota lain. |
 
 **Catatan flow:** FE boleh `POST /join` dulu untuk cek cepat (404/409), lalu emit `join_room`.

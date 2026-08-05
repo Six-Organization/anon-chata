@@ -8,7 +8,7 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
   /* hilangkan kotak biru saat tap di mobile */
   -webkit-tap-highlight-color: transparent;
   /* cegah bounce / pull-to-refresh mengganggu chat */

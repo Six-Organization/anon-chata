@@ -49,6 +49,13 @@ export default function RootLayout({
   return (
     <html lang="id">
       <body>
+        {/* set tema sebelum paint biar tak berkedip */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('anonchat_theme');if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();",
+          }}
+        />
         {children}
         <PwaRegister />
       </body>

@@ -1,7 +1,5 @@
-import fs from "fs";
-import path from "path";
 import { prisma } from "../prisma";
-import { RULES, config } from "../config";
+import { RULES } from "../config";
 import { generateRoomCode } from "../utils/code";
 
 export type ParticipantDTO = {
@@ -16,6 +14,7 @@ export type ReplyPreview = {
   content: string;
   type: string;
 } | null;
+export type ReactionDTO = { emoji: string; clientId: string; nickname: string };
 export type MessageDTO = {
   id: string;
   nickname: string;
@@ -24,8 +23,15 @@ export type MessageDTO = {
   type: MediaType;
   imageUrl: string | null;
   replyTo: ReplyPreview;
+  reactions: ReactionDTO[];
   createdAt: string;
 };
+
+// include/select bersama untuk relasi pesan (reply + reactions).
+export const MESSAGE_RELATIONS = {
+  replyTo: { select: { id: true, nickname: true, content: true, type: true } },
+  reactions: { select: { emoji: true, clientId: true, nickname: true } },
+} as const;
 
 function coerceType(t: string): MediaType {
   return t === "image" || t === "audio" || t === "video" ? t : "text";
@@ -84,19 +90,30 @@ export async function findParticipantByClient(roomId: string, clientId: string) 
   return prisma.participant.findFirst({ where: { roomId, clientId } });
 }
 
-// Panik: hapus semua pesan room + file media terkait (permanen).
-export async function wipeRoomMessages(roomId: string): Promise<void> {
-  const media = await prisma.message.findMany({
-    where: { roomId, imageUrl: { not: null } },
-    select: { imageUrl: true },
+// Obrolan palsu untuk room decoy — biar terlihat seperti grup sepi yang nyata,
+// bukan jebakan kosong. Bertema santai (nyambung "trail run").
+const DECOY_SCRIPT: { nick: string; content: string; minsAgo: number }[] = [
+  { nick: "Andi", content: "Besok jadi lari pagi ga?", minsAgo: 2880 },
+  { nick: "Rani", content: "Jadi dong, jam 6 di gerbang ya", minsAgo: 2874 },
+  { nick: "Andi", content: "Oke jangan telat kayak minggu lalu 😅", minsAgo: 2869 },
+  { nick: "Rani", content: "Iya iya, aku bawa air lebih banyak deh", minsAgo: 2860 },
+  { nick: "Andi", content: "Rute yang biasa aja ya, 5k dulu", minsAgo: 1500 },
+  { nick: "Rani", content: "Boleh, cuaca kayaknya cerah kok", minsAgo: 1494 },
+  { nick: "Andi", content: "Sip, sampai besok 👍", minsAgo: 1440 },
+  { nick: "Rani", content: "Btw hpku lowbat, off dulu ya", minsAgo: 1434 },
+];
+
+export async function seedDecoyMessages(roomId: string): Promise<void> {
+  const now = Date.now();
+  await prisma.message.createMany({
+    data: DECOY_SCRIPT.map((m) => ({
+      roomId,
+      nickname: m.nick,
+      content: m.content,
+      type: "text",
+      createdAt: new Date(now - m.minsAgo * 60 * 1000),
+    })),
   });
-  await prisma.message.deleteMany({ where: { roomId } });
-  for (const m of media) {
-    if (m.imageUrl) {
-      const fp = path.join(config.uploadDir, path.basename(m.imageUrl));
-      fs.unlink(fp, () => {});
-    }
-  }
 }
 
 // Riwayat baca SEMUA peserta (aktif maupun tidak) yang punya last_read_at.
@@ -138,9 +155,7 @@ export async function getMessages(roomId: string): Promise<MessageDTO[]> {
       type: true,
       imageUrl: true,
       createdAt: true,
-      replyTo: {
-        select: { id: true, nickname: true, content: true, type: true },
-      },
+      ...MESSAGE_RELATIONS,
     },
   });
   // ambil N terakhir tapi kembalikan urut lama -> baru
@@ -161,6 +176,7 @@ export function toMessageDTO(m: {
     content: string;
     type: string;
   } | null;
+  reactions?: { emoji: string; clientId: string; nickname: string }[];
 }): MessageDTO {
   return {
     id: m.id,
@@ -177,6 +193,7 @@ export function toMessageDTO(m: {
           type: m.replyTo.type,
         }
       : null,
+    reactions: m.reactions ?? [],
     createdAt: m.createdAt.toISOString(),
   };
 }

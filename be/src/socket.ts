@@ -14,12 +14,13 @@ const MEDIA_TYPES = new Set(["image", "audio", "video"]);
 import {
   findRoomByCode,
   createRoomWithPin,
+  seedDecoyMessages,
   getActiveParticipants,
   getRoomReads,
   getMessages,
   isRoomFull,
   toMessageDTO,
-  wipeRoomMessages,
+  MESSAGE_RELATIONS,
 } from "./services/roomService";
 import { sendRoomMigratedAlert } from "./mailer";
 
@@ -205,12 +206,6 @@ export function registerSocketHandlers(io: Server): void {
             replyToId = target ? target.id : null;
           }
 
-          const includeReply = {
-            replyTo: {
-              select: { id: true, nickname: true, content: true, type: true },
-            },
-          };
-
           // Pesan media: imageUrl harus valid (dari endpoint upload) + file ada.
           if (payload?.imageUrl !== undefined && payload?.imageUrl !== "") {
             const imageUrl = resolveUploadedMedia(payload.imageUrl);
@@ -237,7 +232,7 @@ export function registerSocketHandlers(io: Server): void {
                 replyToId,
                 expiresAt: new Date(Date.now() + RULES.IMAGE_TTL_MS),
               },
-              include: includeReply,
+              include: MESSAGE_RELATIONS,
             });
             io.to(roomChannel(state.roomId)).emit("message", toMessageDTO(saved));
             return;
@@ -257,7 +252,7 @@ export function registerSocketHandlers(io: Server): void {
               content: msg.value,
               replyToId,
             },
-            include: includeReply,
+            include: MESSAGE_RELATIONS,
           });
           // broadcast ke SEMUA anggota room (termasuk pengirim)
           io.to(roomChannel(state.roomId)).emit("message", toMessageDTO(saved));
@@ -288,20 +283,63 @@ export function registerSocketHandlers(io: Server): void {
       }
     });
 
-    // ---- client -> server: wipe_room (panik: hapus semua pesan) ----
-    socket.on("wipe_room", async () => {
-      try {
-        if (!state.roomId) {
-          socket.emit("error", { message: "Belum join room" });
-          return;
+    // ---- client -> server: react_message (reaksi emoji) ----
+    socket.on(
+      "react_message",
+      async (payload: { messageId?: string; emoji?: string }) => {
+        try {
+          if (!state.roomId || !state.clientId) return;
+          const messageId =
+            typeof payload?.messageId === "string" ? payload.messageId : "";
+          const emoji =
+            typeof payload?.emoji === "string" ? payload.emoji.slice(0, 8) : "";
+          if (!messageId || !emoji) return;
+
+          // pastikan pesan ada di room ini
+          const msg = await prisma.message.findFirst({
+            where: { id: messageId, roomId: state.roomId },
+            select: { id: true },
+          });
+          if (!msg) return;
+
+          const existing = await prisma.messageReaction.findUnique({
+            where: {
+              messageId_clientId: { messageId, clientId: state.clientId },
+            },
+          });
+          if (existing) {
+            if (existing.emoji === emoji) {
+              await prisma.messageReaction.delete({ where: { id: existing.id } });
+            } else {
+              await prisma.messageReaction.update({
+                where: { id: existing.id },
+                data: { emoji, nickname: state.nickname ?? "" },
+              });
+            }
+          } else {
+            await prisma.messageReaction.create({
+              data: {
+                messageId,
+                clientId: state.clientId,
+                nickname: state.nickname ?? "",
+                emoji,
+              },
+            });
+          }
+
+          const reactions = await prisma.messageReaction.findMany({
+            where: { messageId },
+            select: { emoji: true, clientId: true, nickname: true },
+          });
+          io.to(roomChannel(state.roomId)).emit("message_reaction", {
+            messageId,
+            reactions,
+          });
+        } catch (err) {
+          console.error("react_message error:", err);
         }
-        await wipeRoomMessages(state.roomId);
-        io.to(roomChannel(state.roomId)).emit("room_wiped");
-      } catch (err) {
-        console.error("wipe_room error:", err);
-        socket.emit("error", { message: "Gagal menghapus chat" });
       }
-    });
+    );
 
     // ---- client -> server: set_room_pin (set/ganti/hapus PIN room) ----
     socket.on("set_room_pin", async (payload: { pin?: string | null }) => {
@@ -377,6 +415,8 @@ async function migrateRoomToDecoy(
       where: { id: oldRoom.id },
       data: { pin: null, pinFailCount: 0 },
     });
+    // isi room decoy dgn obrolan palsu biar tampak grup sepi yang nyata
+    await seedDecoyMessages(oldRoom.id);
     void sendRoomMigratedAlert(oldRoom.code, newRoom.code); // fire-and-forget
     console.log(`[decoy] ${oldRoom.code} -> ${newRoom.code} (3x gagal PIN)`);
   } catch (err) {

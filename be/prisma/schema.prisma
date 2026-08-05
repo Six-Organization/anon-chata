@@ -54,11 +54,27 @@ model Message {
   expiresAt DateTime? @map("expires_at") // media: created_at + 24 jam
   createdAt DateTime  @default(now()) @map("created_at")
 
-  room    Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  replyTo Message?  @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies Message[] @relation("MessageReply")
+  room      Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  replyTo   Message?          @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[]         @relation("MessageReply")
+  reactions MessageReaction[]
 
   @@index([roomId, createdAt])
   @@index([type, expiresAt])
   @@map("messages")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  clientId  String   @map("client_id")
+  nickname  String
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, clientId]) // 1 reaksi per orang per pesan
+  @@index([messageId])
+  @@map("message_reactions")
 }

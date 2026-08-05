@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createRoom, joinRoomCheck } from "@/lib/api";
+import ThemeToggle from "@/app/theme-toggle";
 import {
   getActiveSession,
   getSavedNickname,
@@ -85,6 +86,10 @@ export default function LandingPage() {
     <main className="safe-x relative flex min-h-[100dvh] flex-col overflow-hidden bg-gradient-to-b from-emerald-950 via-emerald-900 to-emerald-800 px-4 py-10">
       {/* cahaya matahari menembus kanopi */}
       <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-lime-400/20 blur-3xl" />
+
+      <div className="absolute right-4 top-4 z-20">
+        <ThemeToggle variant="dark" />
+      </div>
 
       {/* siluet bukit & pohon pinus di dasar */}
       <svg

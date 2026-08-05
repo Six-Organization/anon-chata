@@ -117,3 +117,27 @@ export function takeCarriedPin(code: string): string {
     return "";
   }
 }
+
+// ---- Tema (light/dark) ----
+const THEME_KEY = "anonchat_theme";
+export type Theme = "light" | "dark";
+
+export function getTheme(): Theme {
+  if (typeof window === "undefined") return "light";
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === "dark" || saved === "light") return saved;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+export function applyTheme(theme: Theme): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.classList.toggle("dark", theme === "dark");
+}
+
+export function setTheme(theme: Theme): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(THEME_KEY, theme);
+  applyTheme(theme);
+}
