@@ -19,6 +19,7 @@ import {
   getMessages,
   isRoomFull,
   toMessageDTO,
+  wipeRoomMessages,
 } from "./services/roomService";
 import { sendRoomMigratedAlert } from "./mailer";
 
@@ -284,6 +285,21 @@ export function registerSocketHandlers(io: Server): void {
         });
       } catch (err) {
         console.error("mark_read error:", err);
+      }
+    });
+
+    // ---- client -> server: wipe_room (panik: hapus semua pesan) ----
+    socket.on("wipe_room", async () => {
+      try {
+        if (!state.roomId) {
+          socket.emit("error", { message: "Belum join room" });
+          return;
+        }
+        await wipeRoomMessages(state.roomId);
+        io.to(roomChannel(state.roomId)).emit("room_wiped");
+      } catch (err) {
+        console.error("wipe_room error:", err);
+        socket.emit("error", { message: "Gagal menghapus chat" });
       }
     });
 

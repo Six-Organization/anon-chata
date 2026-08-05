@@ -180,6 +180,12 @@ export default function RoomPage() {
       router.replace(`/room/${p.code}`);
     });
 
+    // Panik: semua chat dihapus -> kosongkan tampilan.
+    socket.on("room_wiped", () => {
+      setItems([]);
+      addSystem("🧹 Semua chat dihapus");
+    });
+
     socket.on("participant_joined", (p: ParticipantChangePayload) => {
       setParticipants(p.participants);
       addSystem(`${p.nickname} bergabung`);
@@ -481,6 +487,28 @@ export default function RoomPage() {
     router.push("/");
   }
 
+  // Panik: langsung kabur ke situs netral + hapus sesi (biar tak auto-balik).
+  function panicExit() {
+    clearSession();
+    if (typeof window !== "undefined") {
+      window.location.replace("https://www.google.com");
+    }
+  }
+
+  // Panik: hapus semua chat room untuk semua orang (dengan konfirmasi).
+  function wipeRoom() {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Hapus SEMUA chat di room ini untuk semua orang? Tidak bisa dibatalkan."
+      )
+    ) {
+      return;
+    }
+    socketRef.current?.emit("wipe_room");
+    setShowPinPanel(false);
+  }
+
   // Submit PIN untuk masuk room ber-PIN.
   function submitPin() {
     const pin = pinInput.trim();
@@ -614,6 +642,19 @@ export default function RoomPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Tombol panik: kabur cepat ke situs netral */}
+          <button
+            onClick={panicExit}
+            aria-label="Keluar cepat (panik)"
+            title="Keluar cepat"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 text-slate-500 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
           <button
             onClick={() => {
               setShowPinPanel((v) => !v);
@@ -678,6 +719,16 @@ export default function RoomPage() {
               className="ml-auto text-sm text-slate-400 hover:text-slate-600"
             >
               Tutup
+            </button>
+          </div>
+
+          {/* Panik: hapus semua chat */}
+          <div className="mt-3 border-t border-slate-200 pt-3">
+            <button
+              onClick={wipeRoom}
+              className="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+            >
+              🧨 Hapus semua chat (semua orang)
             </button>
           </div>
         </div>

@@ -106,6 +106,7 @@ Path default Socket.IO: `/socket.io`.
 | `send_message` | `{ content?, imageUrl?, mediaType?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType` (`image`/`audio`/`video`) + `content` opsional (caption). `replyToId` = balas pesan lain. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
+| `wipe_room` | _(kosong)_ | Panik: hapus **semua** pesan + file media room (harus sudah join). |
 | `leave_room` | _(kosong)_ | Keluar room secara eksplisit. |
 
 ### Server → Client
@@ -117,6 +118,7 @@ Path default Socket.IO: `/socket.io`.
 | `pin_required` | `{ message?: string }` | Room ber-PIN & PIN belum/tidak cocok. FE tampilkan input PIN, lalu emit `join_room` lagi dengan `pin`. |
 | `room_pin_changed` | `{ hasPin: boolean }` | PIN room baru di-set/dihapus. FE update indikator gembok. |
 | `room_migrated` | `{ code: string }` | Decoy aktif (3x gagal PIN): pesan pindah ke room `code` baru. Anggota asli otomatis diarahkan ke sana. |
+| `room_wiped` | _(kosong)_ | Semua pesan room dihapus (panik). FE kosongkan tampilan chat. |
 | `message` | `Message` | Pesan baru broadcast ke semua anggota room. |
 | `participant_joined` | `{ nickname: string; participants: Participant[] }` | Ada yang bergabung. |
 | `participant_left` | `{ nickname: string; participants: Participant[] }` | Ada yang keluar/disconnect. |

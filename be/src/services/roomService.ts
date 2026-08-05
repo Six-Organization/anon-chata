@@ -1,5 +1,7 @@
+import fs from "fs";
+import path from "path";
 import { prisma } from "../prisma";
-import { RULES } from "../config";
+import { RULES, config } from "../config";
 import { generateRoomCode } from "../utils/code";
 
 export type ParticipantDTO = {
@@ -80,6 +82,21 @@ export async function getActiveParticipants(
 // Cari peserta (aktif/nonaktif) berdasarkan clientId di suatu room.
 export async function findParticipantByClient(roomId: string, clientId: string) {
   return prisma.participant.findFirst({ where: { roomId, clientId } });
+}
+
+// Panik: hapus semua pesan room + file media terkait (permanen).
+export async function wipeRoomMessages(roomId: string): Promise<void> {
+  const media = await prisma.message.findMany({
+    where: { roomId, imageUrl: { not: null } },
+    select: { imageUrl: true },
+  });
+  await prisma.message.deleteMany({ where: { roomId } });
+  for (const m of media) {
+    if (m.imageUrl) {
+      const fp = path.join(config.uploadDir, path.basename(m.imageUrl));
+      fs.unlink(fp, () => {});
+    }
+  }
 }
 
 // Riwayat baca SEMUA peserta (aktif maupun tidak) yang punya last_read_at.
