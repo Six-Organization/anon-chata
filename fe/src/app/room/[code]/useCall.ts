@@ -5,19 +5,43 @@ import type { Socket } from "socket.io-client";
 
 export type RemotePeer = { peerId: string; nickname: string; stream: MediaStream };
 
-const ICE: RTCConfiguration = {
-  iceServers: [
+// STUN (deteksi alamat publik) + TURN (relay untuk NAT ketat/jaringan seluler).
+// TURN bisa dioverride via env NEXT_PUBLIC_TURN_* (mis. coturn sendiri di VPS);
+// kalau tak diset, pakai TURN gratis (Open Relay) sebagai fallback.
+function buildIce(): RTCConfiguration {
+  const servers: RTCIceServer[] = [
     {
       urls: [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
-        "stun:stun2.l.google.com:19302",
-        "stun:stun3.l.google.com:19302",
-        "stun:stun4.l.google.com:19302",
       ],
     },
-  ],
-};
+  ];
+  const turnUrls = (process.env.NEXT_PUBLIC_TURN_URLS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (turnUrls.length) {
+    servers.push({
+      urls: turnUrls,
+      username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
+      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "",
+    });
+  } else {
+    servers.push({
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    });
+  }
+  return { iceServers: servers };
+}
+
+const ICE: RTCConfiguration = buildIce();
 
 // Panggilan suara/video mesh (≤3 orang). Signaling lewat socket yang sudah ada.
 export function useCall(
