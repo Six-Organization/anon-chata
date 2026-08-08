@@ -7,7 +7,7 @@ export type ParticipantDTO = {
   nickname: string;
   lastReadAt: string | null;
 };
-export type MediaType = "text" | "image" | "audio" | "video";
+export type MediaType = "text" | "image" | "audio" | "video" | "sticker";
 export type ReplyPreview = {
   id: string;
   nickname: string;
@@ -34,7 +34,9 @@ export const MESSAGE_RELATIONS = {
 } as const;
 
 function coerceType(t: string): MediaType {
-  return t === "image" || t === "audio" || t === "video" ? t : "text";
+  return t === "image" || t === "audio" || t === "video" || t === "sticker"
+    ? t
+    : "text";
 }
 
 // Buat room baru dengan kode unik (retry jika bentrok).

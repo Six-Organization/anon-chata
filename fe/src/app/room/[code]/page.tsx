@@ -16,9 +16,18 @@ import {
 import {
   uploadMediaWithProgress,
   uploadWallpaper,
+  uploadSticker,
   mediaUrl,
   type MediaKind,
 } from "@/lib/api";
+import {
+  BUILTIN_STICKERS,
+  stickerPath,
+  getMyStickers,
+  addMySticker,
+  removeMySticker,
+  fileToStickerBlob,
+} from "@/lib/stickers";
 import {
   getClientId,
   getSavedNickname,
@@ -93,6 +102,10 @@ export default function RoomPage() {
 
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [showCallMenu, setShowCallMenu] = useState(false);
+  const [showStickers, setShowStickers] = useState(false);
+  const [myStickers, setMyStickers] = useState<string[]>([]);
+  const [stickerUploading, setStickerUploading] = useState(false);
+  const stickerInputRef = useRef<HTMLInputElement | null>(null);
   // Wallpaper = setelan ROOM (dibagikan ke semua anggota): preset id / URL / null.
   const [roomWallpaper, setRoomWallpaper] = useState<string | null>(null);
   const [wpUploading, setWpUploading] = useState(false);
@@ -143,6 +156,8 @@ export default function RoomPage() {
 
   // Panggilan suara/video (WebRTC mesh).
   const call = useCall(socketRef, connected);
+
+  useEffect(() => setMyStickers(getMyStickers()), []);
 
   // Bersihkan mic kalau komponen dilepas saat sedang merekam.
   useEffect(
@@ -476,6 +491,36 @@ export default function RoomPage() {
       return;
     }
     queueMedia(file);
+  }
+
+  // ---- Stiker ----
+  function sendSticker(url: string) {
+    socketRef.current?.emit("send_message", {
+      sticker: url,
+      replyToId: replyingTo?.id,
+    });
+    setReplyingTo(null);
+    setShowStickers(false);
+  }
+  async function handleStickerUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    setStickerUploading(true);
+    try {
+      const blob = await fileToStickerBlob(file);
+      const { url } = await uploadSticker(code, blob);
+      addMySticker(url);
+      setMyStickers(getMyStickers());
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Gagal membuat stiker");
+    } finally {
+      setStickerUploading(false);
+    }
+  }
+  function deleteMySticker(url: string) {
+    removeMySticker(url);
+    setMyStickers(getMyStickers());
   }
 
   // ---- Voice note (rekam mikrofon) ----
@@ -1012,6 +1057,80 @@ export default function RoomPage() {
           </div>
         )}
 
+        {/* Tray stiker */}
+        {showStickers && (
+          <div className="mb-2 max-h-56 overflow-y-auto rounded-xl bg-slate-100 p-2 dark:bg-slate-800">
+            <input
+              ref={stickerInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleStickerUpload}
+            />
+            {myStickers.length > 0 && (
+              <>
+                <p className="px-1 pb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Stiker saya
+                </p>
+                <div className="mb-2 grid grid-cols-4 gap-2">
+                  {myStickers.map((u) => (
+                    <div key={u} className="group relative">
+                      <button
+                        onClick={() => sendSticker(u)}
+                        className="aspect-square w-full rounded-lg bg-white/60 p-1 hover:bg-white dark:bg-slate-700/60 dark:hover:bg-slate-700"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={mediaUrl(u)}
+                          alt="stiker"
+                          className="h-full w-full object-contain"
+                        />
+                      </button>
+                      <button
+                        onClick={() => deleteMySticker(u)}
+                        aria-label="Hapus stiker"
+                        className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-red-500 text-[10px] text-white"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <p className="px-1 pb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+              Stiker bawaan
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {BUILTIN_STICKERS.map((id) => (
+                <button
+                  key={id}
+                  onClick={() => sendSticker(stickerPath(id))}
+                  className="aspect-square rounded-lg bg-white/60 p-1 hover:bg-white dark:bg-slate-700/60 dark:hover:bg-slate-700"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={stickerPath(id)}
+                    alt={id}
+                    className="h-full w-full object-contain"
+                  />
+                </button>
+              ))}
+              <button
+                onClick={() => stickerInputRef.current?.click()}
+                disabled={stickerUploading}
+                className="grid aspect-square place-items-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-brand hover:text-brand disabled:opacity-50 dark:border-slate-600"
+              >
+                {stickerUploading ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand" />
+                ) : (
+                  <span className="text-xs font-medium">+ Buat</span>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
         {recording ? (
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-2 text-sm font-medium text-red-600">
@@ -1072,6 +1191,22 @@ export default function RoomPage() {
                 <path d="M5 10a7 7 0 0 0 14 0" />
                 <path d="M12 19v3" />
               </svg>
+            </button>
+
+            {/* Stiker */}
+            <button
+              type="button"
+              onClick={() => setShowStickers((v) => !v)}
+              disabled={!connected}
+              aria-label="Stiker"
+              title="Stiker"
+              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border text-lg transition disabled:opacity-50 ${
+                showStickers
+                  ? "border-brand bg-brand/10"
+                  : "border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-700"
+              }`}
+            >
+              😀
             </button>
 
             <input
@@ -1233,7 +1368,17 @@ function MessageBubble({
     minute: "2-digit",
   });
   const src = msg.imageUrl ? mediaUrl(msg.imageUrl) : null;
-  const expired = msg.type !== "text" && !msg.imageUrl;
+  const isSticker = msg.type === "sticker";
+  const expired = !isSticker && msg.type !== "text" && !msg.imageUrl;
+  // stiker: bawaan (path FE) pakai apa adanya; unggahan (/api/uploads) via mediaUrl
+  const stickerSrc =
+    isSticker && msg.imageUrl
+      ? msg.imageUrl.startsWith("/api/uploads")
+        ? mediaUrl(msg.imageUrl)
+        : msg.imageUrl
+      : null;
+  // "onColored" = teks di atas bubble berwarna (brand). Stiker tak punya bubble.
+  const onColored = mine && !isSticker;
 
   // Kelompokkan reaksi per emoji.
   const grouped = new Map<string, { count: number; mine: boolean }>();
@@ -1248,11 +1393,15 @@ function MessageBubble({
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
         id={`msg-${msg.id}`}
-        className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm transition-shadow ${
-          mine
-            ? "rounded-br-sm bg-brand text-white"
-            : "rounded-bl-sm bg-white text-slate-800 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600"
-        } ${highlighted ? "ring-2 ring-amber-400" : ""}`}
+        className={`${
+          isSticker
+            ? "max-w-[70%]"
+            : `max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                mine
+                  ? "rounded-br-sm bg-brand text-white"
+                  : "rounded-bl-sm bg-white text-slate-800 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600"
+              }`
+        } ${highlighted ? "rounded-2xl ring-2 ring-amber-400" : ""}`}
       >
         {!mine && (
           <p className="mb-0.5 text-xs font-semibold text-brand-dark">
@@ -1266,31 +1415,41 @@ function MessageBubble({
             type="button"
             onClick={() => onJumpTo(msg.replyTo!.id)}
             className={`mb-1 block w-full rounded-md border-l-2 px-2 py-1 text-left text-xs transition ${
-              mine
+              onColored
                 ? "border-white/60 bg-white/15 hover:bg-white/25"
                 : "border-brand bg-slate-100 hover:bg-slate-200"
             }`}
           >
             <p
               className={`font-semibold ${
-                mine ? "text-white/90" : "text-brand-dark"
+                onColored ? "text-white/90" : "text-brand-dark"
               }`}
             >
               {msg.replyTo.nickname}
             </p>
             <p
-              className={`truncate ${mine ? "text-white/80" : "text-slate-500"}`}
+              className={`truncate ${
+                onColored ? "text-white/80" : "text-slate-500"
+              }`}
             >
               {replyPreviewText(msg.replyTo)}
             </p>
           </button>
         )}
 
-        {/* Media: gambar / video / audio */}
-        {expired ? (
+        {/* Media: stiker / gambar / video / audio */}
+        {isSticker && stickerSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={stickerSrc}
+            alt="stiker"
+            loading="lazy"
+            className="h-28 w-28 object-contain"
+          />
+        ) : expired ? (
           <p
             className={`rounded-lg px-2 py-3 text-xs italic ${
-              mine ? "bg-white/15 text-white/80" : "bg-slate-100 text-slate-400"
+              onColored ? "bg-white/15 text-white/80" : "bg-slate-100 text-slate-400"
             }`}
           >
             {mediaLabel(msg.type)} sudah kadaluarsa (24 jam)
@@ -1336,16 +1495,20 @@ function MessageBubble({
                 onClick={() => onReact(emoji)}
                 className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs ring-1 transition ${
                   g.mine
-                    ? mine
+                    ? onColored
                       ? "bg-white/25 ring-white/70"
                       : "bg-brand/15 ring-brand/50"
-                    : mine
+                    : onColored
                     ? "bg-white/10 ring-white/25"
-                    : "bg-slate-100 ring-slate-200"
+                    : "bg-slate-100 ring-slate-200 dark:bg-slate-600 dark:ring-slate-500"
                 }`}
               >
                 <span>{emoji}</span>
-                <span className={mine ? "text-white/90" : "text-slate-600"}>
+                <span
+                  className={
+                    onColored ? "text-white/90" : "text-slate-600 dark:text-slate-200"
+                  }
+                >
                   {g.count}
                 </span>
               </button>
@@ -1357,7 +1520,7 @@ function MessageBubble({
         {showPicker && (
           <div
             className={`mt-1 flex gap-1.5 rounded-full px-2 py-1 ${
-              mine ? "bg-white/15" : "bg-slate-100"
+              onColored ? "bg-white/15" : "bg-slate-100 dark:bg-slate-600"
             }`}
           >
             {REACT_EMOJIS.map((e) => (
@@ -1382,7 +1545,7 @@ function MessageBubble({
             aria-label="Reaksi"
             title="Reaksi"
             className={`opacity-70 transition hover:opacity-100 ${
-              mine ? "text-white/80" : "text-slate-400 hover:text-brand"
+              onColored ? "text-white/80" : "text-slate-400 hover:text-brand"
             }`}
           >
             <svg
@@ -1406,7 +1569,7 @@ function MessageBubble({
             aria-label="Balas"
             title="Balas"
             className={`opacity-70 transition hover:opacity-100 ${
-              mine ? "text-white/80" : "text-slate-400 hover:text-brand"
+              onColored ? "text-white/80" : "text-slate-400 hover:text-brand"
             }`}
           >
             <svg
@@ -1432,7 +1595,7 @@ function MessageBubble({
               {/* ikon centang ganda "dibaca" */}
               <svg
                 viewBox="0 0 24 24"
-                className={`h-3 w-3 ${mine ? "text-white/80" : "text-brand"}`}
+                className={`h-3 w-3 ${onColored ? "text-white/80" : "text-brand"}`}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.5"
@@ -1447,9 +1610,7 @@ function MessageBubble({
                   <span
                     key={r.id}
                     className={`grid h-4 w-4 place-items-center rounded-full text-[8px] font-bold ring-1 ${
-                      mine
-                        ? "bg-white/25 text-white ring-brand"
-                        : "bg-brand/15 text-brand-dark ring-white"
+                      onColored ? "bg-white/25 text-white ring-brand" : "bg-brand/15 text-brand-dark ring-white"
                     }`}
                   >
                     {r.nickname.charAt(0).toUpperCase()}
@@ -1459,7 +1620,9 @@ function MessageBubble({
             </span>
           )}
           <p
-            className={`text-[10px] ${mine ? "text-white/70" : "text-slate-400"}`}
+            className={`text-[10px] ${
+              onColored ? "text-white/70" : "text-slate-400 dark:text-slate-500"
+            }`}
           >
             {time}
           </p>

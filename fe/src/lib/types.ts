@@ -12,7 +12,7 @@ export type ReadReceiptPayload = {
   lastReadAt: string;
 };
 
-export type MediaType = "text" | "image" | "audio" | "video";
+export type MediaType = "text" | "image" | "audio" | "video" | "sticker";
 
 export type ReplyPreview = {
   id: string;

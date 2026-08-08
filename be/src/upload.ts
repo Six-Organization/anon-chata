@@ -45,6 +45,39 @@ export const uploadWallpaperMiddleware = multer({
   },
 });
 
+// ---- Stiker buatan sendiri (persisten di uploads/stickers/) ----
+const stickerDir = path.join(config.uploadDir, "stickers");
+fs.mkdirSync(stickerDir, { recursive: true });
+
+const stickerStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, stickerDir),
+  filename: (_req, file, cb) =>
+    cb(null, `${crypto.randomUUID()}.${extFromMime(file.mimetype)}`),
+});
+
+export const uploadStickerMiddleware = multer({
+  storage: stickerStorage,
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 }, // 2 MB (sudah di-resize klien)
+  fileFilter: (_req, file, cb) => {
+    if (RULES.ALLOWED_IMAGE_MIME[file.mimetype]) cb(null, true);
+    else cb(new Error("INVALID_TYPE"));
+  },
+});
+
+const STICKER_BUILTIN_RE = /^\/stickers\/[a-z0-9_-]+\.png$/;
+const STICKER_UPLOAD_RE =
+  /^\/api\/uploads\/stickers\/([A-Za-z0-9_-]+\.(?:png|webp|jpg|jpeg))$/;
+
+// Validasi stiker yg dikirim: bawaan (/stickers/..) atau unggahan yg filenya ada.
+export function resolveSticker(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  if (STICKER_BUILTIN_RE.test(url)) return url;
+  const m = STICKER_UPLOAD_RE.exec(url);
+  if (!m) return null;
+  const full = path.join(stickerDir, path.basename(m[1]));
+  return fs.existsSync(full) ? url : null;
+}
+
 const WALLPAPER_URL_RE =
   /^\/api\/uploads\/wallpapers\/([A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp))$/;
 

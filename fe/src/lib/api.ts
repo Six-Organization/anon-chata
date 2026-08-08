@@ -76,6 +76,21 @@ export async function uploadWallpaper(
   return res.json();
 }
 
+// Upload stiker buatan sendiri (persisten). Balikan { url }.
+export async function uploadSticker(
+  code: string,
+  blob: Blob
+): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append("file", blob, "sticker.png");
+  const res = await fetch(apiUrl(`/rooms/${encodeURIComponent(code)}/sticker`), {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 // Upload media dengan progress (XHR) — dipakai untuk kirim di background.
 export function uploadMediaWithProgress(
   code: string,

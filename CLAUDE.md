@@ -75,6 +75,11 @@ Media disajikan statis di `GET /api/uploads/<file>`. **Auto-hapus permanen 24 ja
 Upload gambar wallpaper room (multipart, field `file`). Disimpan **permanen** di `uploads/wallpapers/`
 (TIDAK kena auto-hapus 24 jam). Klien me-resize dulu. **201** → `{ "url": "/api/uploads/wallpapers/<file>" }`.
 
+### `POST /api/rooms/:code/sticker`
+Upload stiker buatan sendiri (multipart, field `file`, gambar). Disimpan **permanen** di `uploads/stickers/`
+(klien me-resize jadi PNG persegi transparan). **201** → `{ "url": "/api/uploads/stickers/<file>" }`.
+Stiker bawaan = aset statis FE di `/stickers/<id>.png`. Pesan stiker `type=sticker`, tak kadaluarsa.
+
 ### Tipe bersama
 ```ts
 type Participant = {
@@ -87,8 +92,8 @@ type Message = {
   nickname: string;
   clientId: string | null;         // identitas pengirim (utk tentukan "bubble sendiri" lintas sesi)
   content: string;                 // teks / caption (boleh "" untuk media)
-  type: "text" | "image" | "audio" | "video";
-  imageUrl: string | null;         // URL media (image/audio/video); null jika kadaluarsa
+  type: "text" | "image" | "audio" | "video" | "sticker";
+  imageUrl: string | null;         // URL media/stiker; null jika kadaluarsa (media)
   replyTo: { id: string; nickname: string; content: string; type: string } | null;
   reactions: { emoji: string; clientId: string; nickname: string }[]; // reaksi emoji
   createdAt: string /* ISO */;
@@ -109,7 +114,7 @@ Path default Socket.IO: `/socket.io`.
 | `join_room` | `{ code, nickname?, clientId?, pin? }` | Gabung room. Server enforce max 3. `clientId` = identitas perangkat stabil (dari `localStorage`): kalau sudah pernah join room ini, kursinya **dipakai ulang** (bukan kursi baru) & nickname dipertahankan. `pin` = wajib kalau room ber-PIN. |
 | `set_room_pin` | `{ pin: string \| null }` | Set/ganti/hapus PIN room (harus sudah join). `pin` 4 digit angka, atau `null`/kosong untuk hapus. |
 | `set_room_wallpaper` | `{ wallpaper: string \| null }` | Set latar chat room (dibagi semua anggota). Nilai: preset id, URL wallpaper (`/api/uploads/wallpapers/..`), atau `null`/`"none"` untuk polos. |
-| `send_message` | `{ content?, imageUrl?, mediaType?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType` (`image`/`audio`/`video`) + `content` opsional (caption). `replyToId` = balas pesan lain. |
+| `send_message` | `{ content?, imageUrl?, mediaType?, sticker?, replyToId? }` | Kirim pesan. Teks: `content` wajib. Media: `imageUrl` (dari upload) + `mediaType`. Stiker: `sticker` = path bawaan `/stickers/<id>.png` atau URL unggahan `/api/uploads/stickers/..`. `replyToId` = balas pesan lain. |
 | `typing` | `{ isTyping: boolean }` | (opsional) indikator mengetik. |
 | `mark_read` | _(kosong)_ | Tandai sudah membaca sampai pesan terbaru (server set `lastReadAt=now`). |
 | `react_message` | `{ messageId: string, emoji: string }` | Toggle reaksi emoji (1 reaksi per orang per pesan; emoji sama = lepas). |

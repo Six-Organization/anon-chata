@@ -3,7 +3,11 @@ import { Router, Request, Response } from "express";
 import multer from "multer";
 import { normalizeCode } from "../utils/code";
 import { normalizeNickname } from "../utils/validation";
-import { uploadMediaMiddleware, uploadWallpaperMiddleware } from "../upload";
+import {
+  uploadMediaMiddleware,
+  uploadWallpaperMiddleware,
+  uploadStickerMiddleware,
+} from "../upload";
 import {
   UPLOADS_URL_PREFIX,
   kindFromMime,
@@ -123,6 +127,27 @@ roomsRouter.post("/:code/wallpaper", async (req: Request, res: Response) => {
     return res
       .status(201)
       .json({ url: `/api/uploads/wallpapers/${req.file.filename}` });
+  });
+});
+
+// POST /api/rooms/:code/sticker -> upload stiker buatan sendiri (persisten)
+roomsRouter.post("/:code/sticker", async (req: Request, res: Response) => {
+  const code = normalizeCode(req.params.code);
+  const room = await findRoomByCode(code);
+  if (!room) {
+    return res.status(404).json({ error: "Room tidak ditemukan" });
+  }
+  uploadStickerMiddleware.single("file")(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "Gambar terlalu besar" });
+      }
+      return res.status(400).json({ error: "File harus berupa gambar" });
+    }
+    if (!req.file) return res.status(400).json({ error: "File wajib diunggah" });
+    return res
+      .status(201)
+      .json({ url: `/api/uploads/stickers/${req.file.filename}` });
   });
 });
 

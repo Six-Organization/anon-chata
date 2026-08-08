@@ -6,7 +6,11 @@ import {
   normalizeMessage,
   normalizeCaption,
 } from "./utils/validation";
-import { resolveUploadedMedia, resolveWallpaperUrl } from "./upload";
+import {
+  resolveUploadedMedia,
+  resolveWallpaperUrl,
+  resolveSticker,
+} from "./upload";
 import { RULES } from "./config";
 
 // Jenis media yang valid untuk mediaType di send_message.
@@ -214,6 +218,7 @@ export function registerSocketHandlers(io: Server): void {
         imageUrl?: string;
         mediaType?: string;
         replyToId?: string;
+        sticker?: string;
       }) => {
         try {
           if (!state.roomId || !state.nickname) {
@@ -229,6 +234,29 @@ export function registerSocketHandlers(io: Server): void {
               select: { id: true },
             });
             replyToId = target ? target.id : null;
+          }
+
+          // Stiker (bawaan atau unggahan). Tanpa caption, tak kadaluarsa.
+          if (payload?.sticker !== undefined) {
+            const sticker = resolveSticker(payload.sticker);
+            if (!sticker) {
+              socket.emit("error", { message: "Stiker tidak valid" });
+              return;
+            }
+            const saved = await prisma.message.create({
+              data: {
+                roomId: state.roomId,
+                nickname: state.nickname,
+                clientId: state.clientId ?? null,
+                content: "",
+                type: "sticker",
+                imageUrl: sticker,
+                replyToId,
+              },
+              include: MESSAGE_RELATIONS,
+            });
+            io.to(roomChannel(state.roomId)).emit("message", toMessageDTO(saved));
+            return;
           }
 
           // Pesan media: imageUrl harus valid (dari endpoint upload) + file ada.
