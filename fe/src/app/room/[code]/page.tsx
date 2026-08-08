@@ -1119,6 +1119,29 @@ function replyPreviewText(m: { content: string; type: string }): string {
   return m.content && m.content.trim() ? m.content : mediaLabel(m.type);
 }
 
+// Ubah URL di dalam teks jadi link bisa diklik (aman: tetap render sebagai node,
+// bukan dangerouslySetInnerHTML). URL panjang di-wrap (break-all) biar tak overflow.
+function linkify(text: string): React.ReactNode[] {
+  const parts = text.split(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi);
+  return parts.map((part, i) => {
+    if (/^(https?:\/\/|www\.)/i.test(part)) {
+      const href = part.startsWith("www.") ? `https://${part}` : part;
+      return (
+        <a
+          key={i}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="break-all underline decoration-1 underline-offset-2 hover:opacity-80"
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
 // Bubble media yang sedang di-upload (background) — progress + retry.
 function PendingBubble({
   item,
@@ -1299,7 +1322,9 @@ function MessageBubble({
         ) : null}
 
         {msg.content && (
-          <p className="mt-1 whitespace-pre-wrap break-words">{msg.content}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words">
+            {linkify(msg.content)}
+          </p>
         )}
 
         {/* Chip reaksi */}
